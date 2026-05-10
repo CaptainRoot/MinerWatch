@@ -7,6 +7,7 @@
 Monitor and control Bitaxe, NerdQAxe, Canaan Avalon Nano 3s and Braiins BMM
 miners on your home network — all from your browser, no cloud, no telemetry.
 
+[![CI](https://github.com/imlenti/MinerWatch/actions/workflows/ci.yml/badge.svg)](https://github.com/imlenti/MinerWatch/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#)
