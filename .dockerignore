@@ -1,0 +1,74 @@
+# Files that must NOT end up inside the Docker build context (and
+# therefore inside the image). Kept aligned with .gitignore but
+# stricter — anything not strictly needed at runtime is excluded.
+
+# VCS + CI metadata: not needed at runtime.
+.git
+.gitignore
+.github
+
+# Python virtualenvs / caches: huge, host-specific, irrelevant.
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# User data — never bake personal data into the image. The runtime
+# data lives in a bind/volume mount instead.
+data
+reports
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+vapid_keys.json
+
+# Local config: the example is shipped, the real one is host-specific.
+config.yaml
+.env
+.env.local
+
+# OS clutter.
+.DS_Store
+**/.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor noise.
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Internal docs that aren't part of the public release.
+HANDOFF.md
+NOTES.md
+TODO.md
+push-initial.sh
+
+# Documentation assets aren't needed at runtime; the README lives
+# outside the image (on GitHub) anyway.
+docs
+
+# Build outputs.
+dist
+build
+*.tar.gz
+*.zip
+
+# Logs.
+*.log
+logs
+
+# Docker self-references — pointless to copy into the build context.
+Dockerfile
+docker-compose.yml
+.dockerignore

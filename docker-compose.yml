@@ -1,0 +1,41 @@
+# MinerWatch — Docker Compose stack.
+#
+# Best fit for Linux hosts (incl. Raspberry Pi 4 / 5). On Docker
+# Desktop (macOS / Windows) the LAN auto-discovery doesn't actually
+# work because containers run inside a VM that can't see the host's
+# 192.168.x.x network — see the "Docker" section in README.md for
+# the workaround.
+
+services:
+  minerwatch:
+    image: minerwatch:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minerwatch
+    restart: unless-stopped
+
+    # Host networking is required for two things to work:
+    #   1. auto-discovery — scanning the host's /24 for Bitaxe / cgminer ports;
+    #   2. polling miners by their LAN IP after they've been added.
+    # Bridge networking would give the container a NAT'd address and
+    # the discovery probe wouldn't reach 192.168.x.x devices. On Linux
+    # this is honoured natively. On Docker Desktop it is silently
+    # ignored and the container falls back to bridge — that's why on
+    # macOS / Windows you have to add miners manually by IP.
+    network_mode: host
+
+    volumes:
+      # Persistent runtime state: SQLite DB, VAPID keys, push
+      # subscriptions, alert history, logs. Without this, every
+      # `docker compose down` would wipe your subscribers and the
+      # 30-day metrics history.
+      - ./data:/app/data
+
+    environment:
+      # Defaults — override here if you run multiple instances or
+      # want a non-standard port. Keep MINERWATCH_HOST as 0.0.0.0
+      # when using host networking so the dashboard is reachable
+      # from your phone / laptop on the same LAN.
+      MINERWATCH_HOST: "0.0.0.0"
+      MINERWATCH_PORT: "8000"

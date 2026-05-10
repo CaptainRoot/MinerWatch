@@ -134,14 +134,65 @@ without an interactive login (typical headless Pi setup), enable lingering:
 sudo loginctl enable-linger $USER
 ```
 
-### Docker / Raspberry Pi (alternative)
+### Docker / Raspberry Pi (alternative to start.sh)
+
+A multi-stage `Dockerfile` and a `docker-compose.yml` are shipped for
+users who prefer containers. **It's an alternative, not a requirement**:
+on Linux (including Raspberry Pi) `start.sh` and `scripts/install-service.sh`
+work just as well, with less overhead.
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-The compose file mounts `./data` as a named volume so your metrics survive
-container rebuilds.
+First build takes 1–3 minutes (downloads the Python image and resolves
+the dependency tree); subsequent restarts are instant.
+
+What the stack does:
+
+- Builds a Python 3.11-slim image, multi-stage, runs as a non-root
+  `minerwatch` user (UID 1000), no compilers in the final layer.
+- Mounts `./data` from the repo into `/app/data` so SQLite, VAPID
+  keys, push subscriptions and logs survive `docker compose down`.
+- Uses `network_mode: host` so MinerWatch can reach miners on the
+  same LAN as the host — required for auto-discovery and polling.
+- Adds a `HEALTHCHECK` on `/api/health` so `docker ps` reflects
+  whether the API is actually serving.
+
+Update after a `git pull`:
+
+```bash
+docker compose up -d --build
+```
+
+Stop:
+
+```bash
+docker compose down
+```
+
+Wipe runtime data too (database, VAPID keys, push subscriptions —
+will reset everything as if newly installed):
+
+```bash
+docker compose down
+rm -rf data
+```
+
+#### Caveat: Docker Desktop on macOS / Windows
+
+Docker Desktop runs containers inside a Linux VM, which means
+`network_mode: host` is silently dropped to bridge mode. The dashboard
+will still be reachable at <http://localhost:8000>, but **auto-discovery
+will not find any miner** because the container can't see your
+`192.168.x.x` network. Workarounds:
+
+- Add miners manually by IP from the *Add miner* button in the UI
+  (the polling layer routes through Docker Desktop's NAT and reaches
+  miners at their LAN IPs from inside the VM in most setups).
+- Or — strongly recommended on macOS — use `installer.command`
+  instead. The native LaunchAgent has full LAN access without any
+  of the VM hops.
 
 ## Architecture
 
