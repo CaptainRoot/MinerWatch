@@ -13,6 +13,9 @@ miners on your home network — all from your browser, no cloud, no telemetry.
 [![No Warranty](https://img.shields.io/badge/warranty-none-red.svg)](#disclaimer)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
+⚡ If MinerWatch is useful to your home rig, donations are welcome — BTC only:
+`bc1qexhamvrpclpr2skyyw3u8edm8kznnvt6zjudxu`
+
 ![dashboard screenshot placeholder](docs/screenshots/dashboard.png)
 
 </div>
