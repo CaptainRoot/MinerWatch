@@ -1,0 +1,84 @@
+name: Feature request
+description: Suggest a new capability or an improvement to an existing one
+labels: ["enhancement"]
+title: "[feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an idea. Be concrete: a feature
+        request that says *what problem it solves* gets prioritised
+        much faster than one that just says *what to build*.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case from your point of view.
+      placeholder: |
+        I run my miners on a time-of-use electricity tariff and I
+        want them to throttle down (or off) during peak hours
+        without me having to log in every day.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: How you'd like MinerWatch to handle it.
+      placeholder: |
+        A weekly schedule per miner: each cell of the grid sets
+        a target work mode (or "stop") and a fan target. The
+        scheduler honours the same per-miner overrides as manual
+        control today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways you've thought of solving the same problem.
+      placeholder: |
+        - Run a cron script that calls /api/miners/{id}/control/...
+        - Use a Home Assistant automation
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which area of MinerWatch is most affected?
+      multiple: true
+      options:
+        - Dashboard / UI
+        - Per-miner detail page
+        - Settings / configuration
+        - Drivers (Bitaxe / NerdQAxe / Avalon / Braiins / new family)
+        - Polling / metrics retention
+        - Auto-fan / auto-tuning
+        - Notifications (Web Push, alerts)
+        - Auth / security
+        - Packaging / installer / Docker
+        - Documentation
+    validations:
+      required: false
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Relevant links / docs
+      description: |
+        Firmware API docs, similar features in other projects,
+        screenshots / mock-ups, anything that helps.
+
+  - type: checkboxes
+    id: pre-submit
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I've checked the roadmap in README.md and this isn't already planned
+          required: true
+        - label: I've searched existing issues and this is not a duplicate
+          required: true
