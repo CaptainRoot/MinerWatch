@@ -1,0 +1,98 @@
+# Changelog
+
+All notable changes to MinerWatch are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] — 2026-05-10
+
+First public alpha. Local-first dashboard for home Bitcoin miners,
+covering Bitaxe / NerdQAxe (HTTP), Canaan Avalon Nano 3s / Avalon Q
+(cgminer-text) and Braiins BMM 101 / BOSminer (cgminer-JSON with BOS
+extensions).
+
+### Added
+
+- **Live dashboard** with fleet-wide hashrate, power, efficiency, max
+  chip temp and per-miner cards (Chart.js graphs on the detail page).
+- **Best-share tracker** — both *session* (since the miner's last
+  reboot) and *all-time* (persisted in MinerWatch's DB) per miner and
+  across the fleet, plus a dedicated push notification when a miner
+  beats its own all-time record (with `+10 %` growth threshold and
+  60 s per-miner cool-down to avoid spam).
+- **Bitaxe NVS seeding**: on first contact with a Bitaxe / NerdQAxe,
+  the firmware-persisted `bestDiff` is silently used to seed the
+  all-time record so users don't lose history accumulated before
+  installing MinerWatch.
+- **Web Push notifications (VAPID)** for: chip / VR over-temperature,
+  miner offline, miner recovered, and best-share records — with
+  re-alerts every 600 s while a critical condition persists, plus a
+  sticky "critical status" banner in the dashboard.
+- **Auto-discovery** scanning the host's /24 (default `auto`) for
+  ports 80 (Bitaxe-class) and 4028 (cgminer-class). Detected devices
+  are MAC-pinned so DHCP lease changes don't break the time series.
+- **Server-side auto-fan PID** controller mirroring the Bitaxe
+  firmware (`Kp = 5`, `Ki = 0.1`, `Kd = 2`, P_ON_E, REVERSE, EMA
+  α = 0.2, default target 60 °C). Sample period 10 s with automatic
+  rescaling of the gains relative to the firmware's 100 ms loop.
+- **Tiered SQLite retention** (raw → 1-minute → 1-hour) with a
+  one-shot migration that backfills the rollup tables, prunes raw
+  beyond `retention_raw_hours`, and `VACUUM`s to actually shrink the
+  DB file.
+- **macOS one-click installer** (`installer.command`) that copies
+  MinerWatch to `~/Library/Application Support/MinerWatch/`,
+  registers a LaunchAgent, and survives source folder moves /
+  iCloud relocations.
+- **systemd / launchd service installer** (`scripts/install-service.sh`)
+  for headless Pi setups, with `enable-linger` instructions.
+- **Docker compose** entry in the README (image building lands in a
+  follow-up release).
+- **Optional bearer-token auth** for setups where the LAN isn't fully
+  trusted.
+- **PDF reports** (optional, via WeasyPrint).
+- AGPL-3.0 licensing with SPDX headers in every Python module.
+
+### Drivers
+
+- **Bitaxe / NerdQAxe**: HTTP REST on port 80, full read + control
+  surface (`fan`, `frequency`, `coreVoltage`, `autofanspeed`,
+  restart). Difficulty values parse SI strings (`"4.29G"`, `"2.15M"`)
+  *and* numeric forms — older AxeOS releases, modern v2.x and
+  forks all work.
+- **Canaan Avalon Nano 3s / Avalon Q**: cgminer-text on port 4028
+  with the Avalon dialect (`MM ID0` bracketed fields). Reads chip /
+  VR temps, fans, frequency, accepted / rejected, best share. Writes
+  fan speed (PWM 15-100 or `-1` for firmware auto), frequency,
+  voltage and work mode. Power is read from `MPO[N]` (W).
+- **Braiins BMM 101 / BOSminer**: cgminer-JSON on port 4028 plus
+  Braiins extensions (`temps`, `fans`, `tunerstatus`) for chip-level
+  temperatures and approximate chain power consumption.
+
+### Quality / robustness
+
+- LibreSSL-on-macOS workaround: VAPID private key fed to `pywebpush`
+  in raw base64 instead of PEM, dodging the `header too long`
+  parsing error.
+- Service-worker push notifications use a unique `tag` per
+  `(miner_id, timestamp)` so consecutive alerts don't merge.
+- Auto-discovery returns `None` instead of silently falling back to
+  `192.168.1.0/24` when the host's subnet can't be detected, with a
+  clear log message that points users at the Settings page.
+
+### Known issues
+
+- Push notifications on macOS need *both* the Chrome per-site
+  permission *and* the system-level notification permission for
+  Chrome (System Settings → Notifications → Google Chrome).
+- Braiins BMM firmwares older than the latest BOSminer build may
+  return zeros for `temps` / `fans`; MinerWatch falls back gracefully
+  but you'll see partial data.
+- Canaan firmware refuses fan PWM values below 15 %; the driver maps
+  anything `< 15` to firmware-auto (`-1`).
+- No automated test suite yet — contributions welcome.
+
+[Unreleased]: https://github.com/imlenti/MinerWatch/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/imlenti/MinerWatch/releases/tag/v0.1.0
