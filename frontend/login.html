@@ -24,11 +24,25 @@
         document.getElementById('pwd').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') login();
         });
+        // Redirect back to the page the user originally tried to open
+        // (the auth middleware passes it as ?next=...). If we got here
+        // by visiting /login directly, fall back to the dashboard.
+        // ``next`` is constrained to same-origin paths to prevent open-
+        // redirect abuse.
+        function safeNextTarget() {
+            const raw = new URLSearchParams(window.location.search).get('next');
+            if (!raw) return '/';
+            // Must be a path on this server: starts with "/" and not "//"
+            // (which would be a protocol-relative URL → another origin).
+            if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+            return raw;
+        }
+
         async function login() {
             const password = document.getElementById('pwd').value;
             try {
                 await api('/api/auth/login', { method: 'POST', body: { password } });
-                window.location.href = '/';
+                window.location.href = safeNextTarget();
             } catch (err) {
                 document.getElementById('msg').textContent = 'Incorrect password';
             }

@@ -14,9 +14,11 @@ import logging
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
+from urllib.parse import quote
+
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -37,10 +39,15 @@ log = logging.getLogger("minerwatch")
 
 app = FastAPI(title="MinerWatch", version="0.1.0")
 
-# CORS open: on a home LAN we want it to work from any device
+# CORS open: on a home LAN we want it to work from any device.
+# NOTE: ``allow_origins=["*"]`` combined with ``allow_credentials=True`` is
+# rejected by browsers (especially Safari) — the spec forbids the wildcard
+# when credentials are involved. We use ``allow_origin_regex`` instead so
+# Starlette reflects the actual Origin back, which keeps cookies working
+# across LAN devices (Mac, iPhone, etc.) while still being permissive.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -100,11 +107,33 @@ async def auth_middleware(request: Request, call_next):
         try:
             require_auth(request)
         except HTTPException as exc:
-            # For API requests return 401 JSON; for HTML pages redirect to login
+            # For API requests return 401 JSON; for HTML pages do a *real*
+            # 302 redirect to /login with the original target as `next=`.
+            # Serving login.html inline at the protected URL caused two
+            # nasty issues: (1) browsers cached the login form under the
+            # protected URL, creating a "click Settings → see login" loop,
+            # and (2) the URL bar lied about what the user was looking at.
             if path.startswith("/api/"):
                 return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
-            return FileResponse(FRONTEND_DIR / "login.html")
-    return await call_next(request)
+            target = path
+            if request.url.query:
+                target = f"{path}?{request.url.query}"
+            return RedirectResponse(
+                url=f"/login?next={quote(target, safe='')}",
+                status_code=302,
+            )
+    response = await call_next(request)
+    # When auth is enabled, the HTML page responses should never be cached
+    # by intermediaries or the browser: a cached login or settings page
+    # could leak to other users / sessions, and on iOS Safari the HTTP
+    # cache is aggressive enough to serve stale content even after the
+    # cookie has been set. Static assets keep their own cache policy.
+    is_html_page = (
+        path in {"/", "/settings", "/login"} or path.startswith("/miner/")
+    )
+    if cfg.auth.enabled and is_html_page:
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
 
 
 # ---------- Pages ----------
@@ -586,13 +615,26 @@ async def api_auth_login(payload: LoginPayload, response: Response) -> dict:
         return {"ok": True, "auth_disabled": True}
     if payload.password != cfg.auth.password:
         raise HTTPException(401, "incorrect password")
-    response.set_cookie("mw_token", payload.password, httponly=True, samesite="lax")
+    # Explicit path="/" and a 30-day max_age. The Starlette default is
+    # already path="/", but being explicit makes the intent obvious and
+    # avoids surprises if a future version changes the default. max_age
+    # promotes the cookie from a "session cookie" (which iOS Safari can
+    # drop more eagerly) to a persistent one, so users don't have to log
+    # in again every time the browser is restarted.
+    response.set_cookie(
+        "mw_token",
+        payload.password,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        max_age=60 * 60 * 24 * 30,
+    )
     return {"ok": True}
 
 
 @app.post("/api/auth/logout")
 async def api_auth_logout(response: Response) -> dict:
-    response.delete_cookie("mw_token")
+    response.delete_cookie("mw_token", path="/")
     return {"ok": True}
 
 
