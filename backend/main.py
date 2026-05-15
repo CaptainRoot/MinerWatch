@@ -10,6 +10,7 @@ setting up the virtualenv.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from dataclasses import asdict
 from typing import Any, Dict, Optional
@@ -24,7 +25,13 @@ from pydantic import BaseModel, Field
 
 from . import db
 from .alerts import ensure_vapid_keys, public_key_b64
-from .auth import public_paths, require_auth
+from .auth import (
+    clear_login_failures,
+    login_lockout_remaining,
+    public_paths,
+    record_login_failure,
+    require_auth,
+)
 from .auto_control import auto_fan
 from .config import FRONTEND_DIR, get_config, reload_config
 from .discovery import discover_and_register, scan_network
@@ -39,15 +46,20 @@ log = logging.getLogger("minerwatch")
 
 app = FastAPI(title="MinerWatch", version="0.1.0")
 
-# CORS open: on a home LAN we want it to work from any device.
-# NOTE: ``allow_origins=["*"]`` combined with ``allow_credentials=True`` is
-# rejected by browsers (especially Safari) — the spec forbids the wildcard
-# when credentials are involved. We use ``allow_origin_regex`` instead so
-# Starlette reflects the actual Origin back, which keeps cookies working
-# across LAN devices (Mac, iPhone, etc.) while still being permissive.
+# CORS restricted to the exact origin(s) actually used to open the
+# dashboard. Listing each origin explicitly (rather than reflecting back
+# whatever Origin header the request carries) means a malicious page in
+# another tab cannot trick the browser into letting its own JavaScript
+# read MinerWatch's responses, even if the user is logged in.
+#
+# If you start opening MinerWatch from a different origin (new hostname,
+# different port, https instead of http, raw LAN IP, SSH tunnel on
+# 127.0.0.1, …), add that origin to the list. Symptom of a missing entry:
+# the page loads but API calls fail in the browser console with messages
+# like "blocked by CORS policy".
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r".*",
+    allow_origins=["http://denver.local:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -649,12 +661,53 @@ async def api_auth_status() -> dict:
 
 
 @app.post("/api/auth/login")
-async def api_auth_login(payload: LoginPayload, response: Response) -> dict:
+async def api_auth_login(
+    payload: LoginPayload,
+    request: Request,
+    response: Response,
+) -> dict:
     cfg = get_config()
     if not cfg.auth.enabled:
         return {"ok": True, "auth_disabled": True}
-    if payload.password != cfg.auth.password:
+
+    expected = (cfg.auth.password or "").strip()
+    if not expected:
+        # Same fail-closed posture as require_auth(): if auth is on but
+        # no password is configured we refuse every login attempt instead
+        # of letting an empty password match via compare_digest("", "").
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication is enabled but no password is configured",
+        )
+
+    # Per-IP rate-limit: a small in-memory counter that locks out a
+    # client after LOGIN_FAIL_THRESHOLD consecutive wrong attempts. Keeps
+    # brute force on the LAN to a crawl without making typos painful.
+    ip = request.client.host if request.client else "unknown"
+    remaining = login_lockout_remaining(ip)
+    if remaining > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts. Try again in {int(remaining) + 1}s.",
+        )
+
+    provided = payload.password or ""
+    if not hmac.compare_digest(provided, expected):
+        wait = record_login_failure(ip)
+        if wait > 0:
+            # Just tripped the threshold — surface a 429 so the UI shows
+            # the user a useful "locked for N seconds" message instead of
+            # a generic "wrong password".
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed attempts. Locked for {int(wait) + 1}s.",
+            )
         raise HTTPException(401, "incorrect password")
+
+    # Success — wipe the failure counter for this IP so the next typo
+    # doesn't start halfway to a lockout.
+    clear_login_failures(ip)
+
     # Explicit path="/" and a 30-day max_age. The Starlette default is
     # already path="/", but being explicit makes the intent obvious and
     # avoids surprises if a future version changes the default. max_age

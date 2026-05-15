@@ -20,6 +20,14 @@
     </div>
     <script src="/static/app.js?v=2"></script>
     <script>
+        // Live countdown for the per-IP lockout. Re-syncs to whatever
+        // seconds the backend reports in its 429 detail and counts down
+        // once per second, disabling the Sign in button so accidental
+        // Enter presses don't burn requests against an already-locked
+        // account. Cleared (button re-enabled, message wiped) when the
+        // countdown hits zero or a non-lockout error happens.
+        let lockTimer = null;
+
         document.getElementById('btn-login').addEventListener('click', login);
         document.getElementById('pwd').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') login();
@@ -39,13 +47,59 @@
         }
 
         async function login() {
+            const btn = document.getElementById('btn-login');
+            // Ignore clicks/Enter while the lockout countdown is running.
+            if (btn.disabled) return;
+
             const password = document.getElementById('pwd').value;
             try {
                 await api('/api/auth/login', { method: 'POST', body: { password } });
                 window.location.href = safeNextTarget();
             } catch (err) {
-                document.getElementById('msg').textContent = 'Incorrect password';
+                // err.message carries the backend's HTTPException detail
+                // (api() unwraps the JSON `detail` field). On a lockout
+                // we extract the seconds and start the live countdown;
+                // on any other error we just show the message.
+                const msg = err.message || 'Incorrect password';
+                const looksLikeLockout = /too many failed attempts/i.test(msg);
+                const match = msg.match(/(\d+)\s*s\b/);
+                if (looksLikeLockout && match) {
+                    startLockoutCountdown(parseInt(match[1], 10));
+                } else {
+                    stopLockoutCountdown();
+                    document.getElementById('msg').textContent = msg;
+                }
             }
+        }
+
+        function startLockoutCountdown(seconds) {
+            if (lockTimer) clearInterval(lockTimer);
+            const btn = document.getElementById('btn-login');
+            const msgEl = document.getElementById('msg');
+            btn.disabled = true;
+            let remaining = seconds;
+            const tick = () => {
+                if (remaining <= 0) {
+                    stopLockoutCountdown();
+                    return;
+                }
+                msgEl.textContent =
+                    `Too many failed attempts. Locked for ${remaining}s.`;
+                remaining -= 1;
+            };
+            // Fire immediately so the user sees the first value without
+            // a one-second blank delay.
+            tick();
+            lockTimer = setInterval(tick, 1000);
+        }
+
+        function stopLockoutCountdown() {
+            if (lockTimer) {
+                clearInterval(lockTimer);
+                lockTimer = null;
+            }
+            document.getElementById('btn-login').disabled = false;
+            document.getElementById('msg').textContent = '';
         }
     </script>
 </body>
