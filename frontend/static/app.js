@@ -144,6 +144,62 @@ window.fmtRelative = fmtRelative;
 window.tempClass = tempClass;
 window.fmtDifficulty = fmtDifficulty;
 
+// ---------- Tabs ----------
+//
+// Reusable tab system shared by miner.html and settings.html. Markup
+// shape:
+//   <div class="tabs" data-tabs-for="<root-id>">
+//     <button class="tab-button" data-tab="overview">Overview</button>
+//     …
+//   </div>
+//   <div id="<root-id>">
+//     <div class="tab-pane" data-tab="overview">…</div>
+//     …
+//   </div>
+//
+// `setupTabs(rootId, defaultTab?)` wires the click handlers, applies the
+// initial active state, and (optionally) restores the last-selected tab
+// from sessionStorage so a refresh keeps you on the same view. Pages can
+// call it as many times as they want — re-init is idempotent.
+
+function setupTabs(rootId, options = {}) {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    const bar = document.querySelector(`.tabs[data-tabs-for="${rootId}"]`);
+    if (!bar) return;
+    const buttons = Array.from(bar.querySelectorAll('.tab-button'));
+    const panes = Array.from(root.querySelectorAll(':scope > .tab-pane'));
+    if (!buttons.length || !panes.length) return;
+
+    const storageKey = options.persist === false ? null : `mw_tabs_${rootId}`;
+    const tabNames = buttons.map((b) => b.dataset.tab).filter(Boolean);
+
+    let initial = options.defaultTab || tabNames[0];
+    if (storageKey) {
+        const saved = sessionStorage.getItem(storageKey);
+        if (saved && tabNames.includes(saved)) initial = saved;
+    }
+
+    const activate = (name) => {
+        buttons.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === name));
+        panes.forEach((p) => p.classList.toggle('active', p.dataset.tab === name));
+        if (storageKey) {
+            try { sessionStorage.setItem(storageKey, name); } catch {}
+        }
+        if (typeof options.onChange === 'function') options.onChange(name);
+    };
+
+    buttons.forEach((btn) => {
+        if (btn.dataset.tabsBound === '1') return;  // idempotent
+        btn.dataset.tabsBound = '1';
+        btn.addEventListener('click', () => activate(btn.dataset.tab));
+    });
+
+    activate(initial);
+}
+
+window.setupTabs = setupTabs;
+
 // ---------- Dashboard ----------
 
 const dashboardEl = document.getElementById('dashboard-root');
@@ -183,6 +239,11 @@ async function renderDashboard() {
             renderBestShares(miners),
             renderBlockFinds(),
         ]);
+        // Note: renderPredictions() and renderTopShares() now live on
+        // the dedicated /analytics page; they're still defined in this
+        // file (kept here so app.js stays the only place that imports
+        // the formatting helpers) but the dashboard no longer calls
+        // them.
     } catch (err) {
         toast(`Error loading: ${err.message}`, 'error');
     }
@@ -309,6 +370,205 @@ async function renderBestShares(miners) {
             ${renderEntry('All-time', 'tracked by MinerWatch', records.alltime)}
         </div>
     `;
+}
+
+// ---------- Predictions widget ----------
+//
+// Statistical answer to the question every solo miner asks: "when am I
+// going to beat my record / find a block?". Backend (/api/fleet/prediction)
+// computes both probabilities using the Poisson model for solo-mining
+// shares, P(t) = 1 - exp(-rate · t). Frontend just renders the numbers.
+
+function _fmtEta(seconds) {
+    if (seconds === null || seconds === undefined || !isFinite(seconds) || seconds <= 0) return '—';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+    if (seconds < 86400) {
+        const h = seconds / 3600;
+        return `${h < 10 ? h.toFixed(1) : Math.round(h)} h`;
+    }
+    if (seconds < 86400 * 30) {
+        const d = seconds / 86400;
+        return `${d < 10 ? d.toFixed(1) : Math.round(d)} days`;
+    }
+    if (seconds < 86400 * 365) {
+        const m = seconds / (86400 * 30.44);
+        return `${m < 10 ? m.toFixed(1) : Math.round(m)} months`;
+    }
+    const y = seconds / (86400 * 365.25);
+    return y < 100 ? `${y < 10 ? y.toFixed(1) : Math.round(y)} years` : `${Math.round(y).toLocaleString()} years`;
+}
+
+function _fmtProb(p) {
+    if (p === null || p === undefined || !isFinite(p)) return '—';
+    if (p >= 0.9995) return '> 99.9 %';
+    if (p < 0.0001) return '< 0.01 %';
+    const pct = p * 100;
+    if (pct < 1) return `${pct.toFixed(3)} %`;
+    if (pct < 10) return `${pct.toFixed(2)} %`;
+    return `${pct.toFixed(1)} %`;
+}
+
+function _predictionBlock(title, subtitle, pred) {
+    if (!pred) {
+        return `
+            <div class="prediction-block">
+                <div class="prediction-block-header">
+                    <div class="prediction-block-title">${title}</div>
+                    <div class="prediction-block-sub">${subtitle}</div>
+                </div>
+                <div class="prediction-empty">Not enough data yet — waiting for live hashrate and a known target.</div>
+            </div>
+        `;
+    }
+    const bar = (label, p) => {
+        const pct = (p === null || p === undefined || !isFinite(p)) ? 0 : Math.max(0, Math.min(1, p)) * 100;
+        return `
+            <div class="prediction-bar-row">
+                <div class="prediction-bar-label">${label}</div>
+                <div class="prediction-bar-track"><div class="prediction-bar-fill" style="width:${pct.toFixed(2)}%"></div></div>
+                <div class="prediction-bar-value">${_fmtProb(p)}</div>
+            </div>
+        `;
+    };
+    return `
+        <div class="prediction-block">
+            <div class="prediction-block-header">
+                <div class="prediction-block-title">${title}</div>
+                <div class="prediction-block-sub">${subtitle}</div>
+            </div>
+            <div class="prediction-eta">
+                <span class="prediction-eta-label">Expected time</span>
+                <span class="prediction-eta-value">${_fmtEta(pred.expected_time_s)}</span>
+            </div>
+            <div class="prediction-bars">
+                ${bar('Within 1 hour', pred.probability['1h'])}
+                ${bar('Within 24 hours', pred.probability['24h'])}
+                ${bar('Within 7 days', pred.probability['7d'])}
+            </div>
+        </div>
+    `;
+}
+
+async function renderPredictions() {
+    const card = document.getElementById('predictions-card');
+    if (!card) return;
+    let data;
+    try {
+        data = await api('/api/fleet/prediction');
+    } catch {
+        card.classList.add('hidden');
+        return;
+    }
+
+    const hasFleetHash = data.fleet_hashrate_ths && data.fleet_hashrate_ths > 0;
+    const hasBest = !!(data.best_alltime && data.best_alltime.value);
+    if (!hasFleetHash || !hasBest) {
+        // No fleet hashrate or no record yet → nothing meaningful to show.
+        // The block-find widget already covers "first share" celebration,
+        // so this card stays out of the way until both signals are present.
+        card.classList.add('hidden');
+        return;
+    }
+
+    const metaEl = document.getElementById('predictions-meta');
+    if (metaEl) {
+        const hashLabel = `${fmtNum(data.fleet_hashrate_ths, 2)} TH/s fleet`;
+        const bestLabel = `best ${fmtDifficulty(data.best_alltime.value)}`;
+        const netLabel = data.network_difficulty ? ` · net ${fmtDifficulty(data.network_difficulty)}` : '';
+        metaEl.textContent = `${hashLabel} · ${bestLabel}${netLabel}`;
+    }
+
+    const body = document.getElementById('predictions-body');
+    if (!body) return;
+
+    const preds = data.predictions || {};
+    const blocks = [
+        _predictionBlock(
+            'Beat all-time best',
+            `Current record: ${fmtDifficulty(data.best_alltime.value)}`,
+            preds.beat_best,
+        ),
+    ];
+    // The "find a block" prediction is only shown when at least one miner
+    // surfaced network_difficulty via stratum. Without it we'd be guessing,
+    // and a wrong number is worse than no number for this kind of widget.
+    if (data.network_difficulty) {
+        blocks.push(_predictionBlock(
+            'Find a block (solo)',
+            `Network difficulty: ${fmtDifficulty(data.network_difficulty)}`,
+            preds.find_block,
+        ));
+    }
+
+    body.innerHTML = blocks.join('');
+    card.classList.remove('hidden');
+}
+
+// ---------- Top best shares leaderboard ----------
+//
+// Ranking of enabled miners by all-time best share. Pulls from the new
+// /api/fleet/best_difficulty/top endpoint. Hidden when zero miners have
+// ever produced a share yet (fresh install).
+
+async function renderTopShares(miners) {
+    const card = document.getElementById('top-shares-card');
+    if (!card) return;
+    let data;
+    try {
+        data = await api('/api/fleet/best_difficulty/top?scope=alltime&limit=10');
+    } catch {
+        card.classList.add('hidden');
+        return;
+    }
+
+    const entries = (data && data.entries) || [];
+    if (!entries.length) {
+        card.classList.add('hidden');
+        return;
+    }
+
+    // Map miner_id → family/online to add a small badge in the ranking
+    const minerById = new Map((miners || []).map((m) => [m.id, m]));
+    const familyLabel = (fam) => ({
+        bitaxe: 'Bitaxe / NerdQAxe',
+        canaan: 'Canaan / Avalon',
+        braiins: 'Braiins / BMM',
+    }[fam] || fam || '—');
+
+    const medal = (rank) => (rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`);
+
+    const rows = entries.map((e, idx) => {
+        const rank = idx + 1;
+        const minerRef = minerById.get(e.miner_id);
+        const online = minerRef && minerRef.live_online === true;
+        const onlineDot = online ? '<span class="status-dot online"></span>' : '';
+        return `
+            <div class="top-share-row">
+                <div class="top-share-rank">${medal(rank)}</div>
+                <div class="top-share-name">
+                    <a href="/miner/${e.miner_id}">${escapeHtml(e.miner_name)}</a>
+                    <div class="top-share-family">${onlineDot}${escapeHtml(familyLabel(e.family))}</div>
+                </div>
+                <div class="top-share-value">${fmtDifficulty(e.value)}</div>
+                <div class="top-share-when">${fmtRelative(e.ts)}</div>
+            </div>
+        `;
+    }).join('');
+
+    const body = document.getElementById('top-shares-body');
+    if (body) {
+        body.innerHTML = `
+            <div class="top-share-header">
+                <div class="top-share-rank">#</div>
+                <div class="top-share-name">Miner</div>
+                <div class="top-share-value">Best</div>
+                <div class="top-share-when">When</div>
+            </div>
+            ${rows}
+        `;
+    }
+    card.classList.remove('hidden');
 }
 
 function renderCriticalBanner(miners, cfg) {

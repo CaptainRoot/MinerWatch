@@ -155,7 +155,8 @@ async def auth_middleware(request: Request, call_next):
     # cache is aggressive enough to serve stale content even after the
     # cookie has been set. Static assets keep their own cache policy.
     is_html_page = (
-        path in {"/", "/settings", "/system", "/login"} or path.startswith("/miner/")
+        path in {"/", "/settings", "/analytics", "/system", "/login"}
+        or path.startswith("/miner/")
     )
     if cfg.auth.enabled and is_html_page:
         response.headers.setdefault("Cache-Control", "no-store")
@@ -177,6 +178,19 @@ async def miner_page(miner_id: int) -> Response:  # noqa: ARG001
 @app.get("/settings", include_in_schema=False)
 async def settings_page() -> Response:
     return FileResponse(FRONTEND_DIR / "settings.html")
+
+
+@app.get("/analytics", include_in_schema=False)
+async def analytics_page() -> Response:
+    """Analytics dashboard.
+
+    Hosts the Predictions widget and the Top best shares leaderboard.
+    The page itself is a thin shell; the widgets are rendered by
+    ``frontend/static/analytics.js`` which reuses the same renderers
+    the dashboard used before the widgets were moved to a dedicated
+    page.
+    """
+    return FileResponse(FRONTEND_DIR / "analytics.html")
 
 
 @app.get("/system", include_in_schema=False)
@@ -378,6 +392,125 @@ async def api_fleet_best_difficulty() -> dict:
     MinerWatch restarts, because it's persisted in our DB.
     """
     return await db.get_fleet_best_records()
+
+
+@app.get("/api/fleet/best_difficulty/top")
+async def api_fleet_best_difficulty_top(
+    scope: str = "alltime",
+    limit: int = 10,
+) -> dict:
+    """Leaderboard dei migliori best-share del fleet per scope.
+
+    Una riga per miner (schema `best_records` ha PK su miner_id+scope).
+    ``scope`` può essere 'alltime' o 'session'. ``limit`` clampato a 1..100.
+    Pensato per il widget "Top best shares" nella dashboard.
+    """
+    rows = await db.get_fleet_best_records_ranked(scope=scope, limit=limit)
+    return {"scope": scope, "limit": limit, "entries": rows}
+
+
+@app.get("/api/fleet/prediction")
+async def api_fleet_prediction() -> dict:
+    """Statistical prediction widget per il fleet.
+
+    Calcola la probabilità di battere il best-share all-time corrente
+    entro 1h / 24h / 7d, e l'expected time to beat. Se almeno un miner
+    online espone ``network_difficulty`` via stratum, calcoliamo anche la
+    probabilità di trovare un blocco a difficoltà di rete corrente —
+    questa è la metrica che il solo miner vuole davvero vedere.
+
+    Formula (Poisson, share solo-mining):
+        rate = H / (D · 2^32)  shares-di-difficolta'-D-per-secondo
+        P(t) = 1 - exp(-rate · t)
+        E[T] = 1 / rate
+
+    Output:
+      {
+        "fleet_hashrate_ths": float | None,   # somma device online
+        "best_alltime": {value, ts, miner_id, miner_name} | None,
+        "network_difficulty": float | None,
+        "predictions": {
+          "beat_best": {
+            "expected_time_s": float | None,
+            "probability": {"1h": .., "24h": .., "7d": ..},
+          } | None,
+          "find_block": {
+            "expected_time_s": float | None,
+            "probability": {"1h": .., "24h": .., "7d": ..},
+          } | None
+        }
+      }
+    """
+    import math
+
+    # ---- Hashrate corrente del fleet: somma dei live sample online ----
+    fleet_h_ths: float = 0.0
+    any_hashrate = False
+    network_diff: float | None = None
+    miners = await db.list_miners()
+    for m in miners:
+        sample = poller.last_results.get(m["id"])
+        if not sample or not sample.online:
+            continue
+        if sample.hashrate_ths is not None:
+            fleet_h_ths += float(sample.hashrate_ths)
+            any_hashrate = True
+        # Prendiamo la prima network_difficulty disponibile. Tutti i miner
+        # collegati allo stesso pool dovrebbero esporre lo stesso valore;
+        # se differiscono, l'ordine di iterazione decide ma la differenza
+        # è trascurabile per gli scopi della predizione.
+        if network_diff is None and sample.network_difficulty:
+            try:
+                nd = float(sample.network_difficulty)
+                if nd > 0:
+                    network_diff = nd
+            except (TypeError, ValueError):
+                pass
+
+    # ---- Best all-time del fleet ----
+    best = (await db.get_fleet_best_records()).get("alltime")
+
+    def _prediction(target_diff: float | None) -> dict | None:
+        """Per un target di difficoltà, calcola E[T] e P(1h/24h/7d).
+
+        Usa la conversione TH/s → hashes/s (×1e12) e ``D · 2^32`` come
+        numero medio di hash per beccare uno share di quella difficoltà.
+        """
+        if not target_diff or target_diff <= 0:
+            return None
+        if not any_hashrate or fleet_h_ths <= 0:
+            return None
+        hashes_per_s = fleet_h_ths * 1e12
+        expected_hashes = target_diff * (2.0 ** 32)
+        rate = hashes_per_s / expected_hashes  # share/s di quella difficolta'
+        if rate <= 0:
+            return None
+        expected_t = 1.0 / rate
+        # Cap exp argument per evitare overflow (in pratica per t enormi
+        # P → 1, ma exp(-1e10) sotto-flow è comunque safe in Python).
+        def _p(t: float) -> float:
+            return 1.0 - math.exp(-min(rate * t, 700.0))
+        return {
+            "expected_time_s": expected_t,
+            "probability": {
+                "1h": _p(3600),
+                "24h": _p(86400),
+                "7d": _p(7 * 86400),
+            },
+        }
+
+    beat_best = _prediction(best["value"] if best else None)
+    find_block = _prediction(network_diff)
+
+    return {
+        "fleet_hashrate_ths": round(fleet_h_ths, 4) if any_hashrate else None,
+        "best_alltime": best,
+        "network_difficulty": network_diff,
+        "predictions": {
+            "beat_best": beat_best,
+            "find_block": find_block,
+        },
+    }
 
 
 @app.get("/api/miners/{miner_id}/best_difficulty")

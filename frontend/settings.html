@@ -11,6 +11,7 @@
     <aside class="sidebar">
         <div class="brand"><div class="brand-mark">MW</div> MinerWatch</div>
         <a class="nav-link" href="/">Dashboard</a>
+        <a class="nav-link" href="/analytics">Analytics</a>
         <a class="nav-link active" href="/settings">Settings</a>
         <a class="nav-link nav-link-system hidden" href="/system">System</a>
         <div class="sidebar-footer">v0.1 · local</div>
@@ -23,6 +24,16 @@
                 <button class="primary" id="btn-save">Save all</button>
             </div>
         </div>
+
+        <div class="tabs" data-tabs-for="settings-tabs">
+            <button class="tab-button" data-tab="general">General</button>
+            <button class="tab-button" data-tab="alerts">Alerts</button>
+            <button class="tab-button" data-tab="notifications">Notifications</button>
+            <button class="tab-button" data-tab="security">Security</button>
+        </div>
+
+        <div id="settings-tabs">
+        <div class="tab-pane" data-tab="general">
 
         <div class="panel">
             <h2>Polling & storage</h2>
@@ -51,6 +62,20 @@
         </div>
 
         <div class="panel" style="margin-top:14px">
+            <h2>Network</h2>
+            <div class="panel-row">
+                <div>
+                    <label>Subnet scan (CIDR, "auto" to use the Mac's network)</label>
+                    <input type="text" id="network.scan_cidr" placeholder="192.168.1.0/24" />
+                </div>
+            </div>
+        </div>
+
+        </div><!-- /general -->
+
+        <div class="tab-pane" data-tab="alerts">
+
+        <div class="panel">
             <h2>Alert thresholds</h2>
             <div class="panel-row">
                 <div>
@@ -89,6 +114,15 @@
         </div>
 
         <div class="panel" style="margin-top:14px">
+            <h2>Alert history</h2>
+            <div id="alerts-list"></div>
+        </div>
+
+        </div><!-- /alerts -->
+
+        <div class="tab-pane" data-tab="notifications">
+
+        <div class="panel">
             <h2>Browser push notifications</h2>
             <p class="subtitle">
                 Native OS notifications delivered by the browser. Work as long as the
@@ -176,17 +210,11 @@
             </details>
         </div>
 
-        <div class="panel" style="margin-top:14px">
-            <h2>Network</h2>
-            <div class="panel-row">
-                <div>
-                    <label>Subnet scan (CIDR, "auto" to use the Mac's network)</label>
-                    <input type="text" id="network.scan_cidr" placeholder="192.168.1.0/24" />
-                </div>
-            </div>
-        </div>
+        </div><!-- /notifications -->
 
-        <div class="panel" style="margin-top:14px">
+        <div class="tab-pane" data-tab="security">
+
+        <div class="panel">
             <h2>Password protection</h2>
             <p class="subtitle">Disabled by default. When enabled, you must enter a password that will be required on each login.</p>
             <div class="panel-row">
@@ -206,14 +234,20 @@
             </div>
         </div>
 
-        <div class="panel" style="margin-top:14px">
-            <h2>Alert history</h2>
-            <div id="alerts-list"></div>
-        </div>
+        </div><!-- /security -->
+        </div><!-- /settings-tabs -->
     </main>
 </div>
 
-<script src="/static/app.js?v=2"></script>
-<script src="/static/settings.js?v=2"></script>
+<script src="/static/app.js?v=3"></script>
+<script src="/static/settings.js?v=3"></script>
+<script>
+    // Activate the settings tab bar once the DOM is ready. setupTabs is
+    // idempotent and remembers the last-selected tab per-tab-root via
+    // sessionStorage, so a page refresh keeps you on the same view.
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof setupTabs === 'function') setupTabs('settings-tabs', { defaultTab: 'general' });
+    });
+</script>
 </body>
 </html>

@@ -17,7 +17,7 @@ miners on your home network — all from your browser, no cloud, no telemetry.
 ⚡ If MinerWatch is useful to your home rig, donations are welcome — BTC only:
 `bc1qexhamvrpclpr2skyyw3u8edm8kznnvt6zjudxu`
 
-![dashboard screenshot placeholder](docs/screenshots/dashboard.png)
+![MinerWatch dashboard](docs/screenshots/dashboard.png)
 
 </div>
 
@@ -36,21 +36,40 @@ comfortable opening a terminal but not necessarily developers.
 
 ## Features
 
-- **Live dashboard** — hash rate, chip and VR temps, fans, power, accepted /
-  rejected shares for every miner at a glance
+- **Live dashboard** — hash rate, chip and VR temps, fans, power, efficiency
+  (W/TH), accepted / rejected shares and uptime for every miner at a glance,
+  refreshed every 5 seconds by default
+- **Per-miner detail page** with tabs (Overview · Hardware · History ·
+  Controls), Chart.js graphs over the last hour / day / week / month, and a
+  grouped hardware view (Identity, ASIC, Thermal, Fan & Power, Pool)
+- **Predictions widget** — probability of beating your all-time best share
+  and (when stratum exposes the network difficulty) of finding a block, at
+  1 h / 24 h / 7 d, computed with the Poisson model for solo-mining shares
+- **Top best shares leaderboard** across enabled miners, with medals and a
+  link to the device
 - **Best-share tracker** — session and all-time best difficulty per miner
   and across the fleet, with native push when a miner breaks its own
   all-time record
-- **Per-miner detail page** with Chart.js graphs over the last hours / days
-- **Browser push notifications** (Web Push + VAPID) for over-temperature,
-  miner-offline, miner-online recovery, and best-share records — works on
-  macOS Chrome, native OS notifications
-- **Auto-discovery** of miners on the LAN (port 80 for Bitaxe-class, port 4028
-  for cgminer-based devices); MAC-pinned identity so DHCP IP changes don't
-  break tracking
-- **Optional bearer-token auth** for setups where the LAN isn't fully trusted
-- **30 days of metrics retention** by default, configurable
-- **One-click macOS launcher** plus a Docker setup for Linux / Raspberry Pi
+- **Block-find detection** — when a share difficulty meets or exceeds the
+  network difficulty (a solo block!), MinerWatch fires a push notification
+  and pins a permanent trophy card on the dashboard
+- **Server-side auto-fan PID** controller (`backend/auto_control.py`)
+  replicating the BitAxe firmware loop (Kp=5, Ki=0.1, Kd=2, EMA, target temp
+  configurable per device). Useful on miners whose firmware lacks a sane
+  curve, or to hold a target temperature across the fleet
+- **Multi-channel alerts**: Web Push (VAPID) for native OS notifications,
+  *and* a Telegram bot that delivers to any phone or desktop without HTTPS
+  — both channels are independent kill-switches in the UI
+- **Tiered metric retention** — raw 5-second samples for the last 48 h,
+  1-minute rollups for 30 days, 1-hour rollups for 2 years. SQLite stays
+  small, history stays long
+- **LAN auto-discovery** of miners on demand (port 80 for Bitaxe-class,
+  port 4028 for cgminer-based devices), with MAC-pinned identity so DHCP
+  IP changes don't break tracking
+- **Optional password protection** (bearer-token + cookie) for setups where
+  the LAN isn't fully trusted
+- **One-click macOS launcher**, Docker setup for Linux / Raspberry Pi, and
+  an Umbrel App Store package (`umbrel/`) for one-click install on umbrelOS
 - **No cloud, no account, no analytics** — all data stays on your box
 
 ## Supported miners
@@ -180,6 +199,16 @@ docker compose down
 rm -rf data
 ```
 
+### Umbrel App Store
+
+If you run an Umbrel home server, MinerWatch ships an App Store package
+under `umbrel/` (`umbrel-app.yml` + `docker-compose.yml` + README). The
+submission process is the standard `getumbrel/umbrel-apps` PR flow —
+the `umbrel/README.md` documents the build / pin / publish checklist.
+Once the listing is approved, installation is a single click from the
+Umbrel dashboard, and persistent data lives in `${APP_DATA_DIR}/data`
+on the Umbrel box.
+
 #### Caveat: Docker Desktop on macOS / Windows
 
 Docker Desktop runs containers inside a Linux VM, which means
@@ -198,37 +227,42 @@ will not find any miner** because the container can't see your
 ## Architecture
 
 ```
-                            ┌─────────────────────────┐
-                            │  Browser (Chrome / etc) │
-                            │  index.html · settings  │
-                            └────────────┬────────────┘
-                                         │  HTTP / WebPush
-                                         ▼
-   ┌──────────────────────────────────────────────────────────────┐
-   │                        FastAPI app                           │
-   │  main.py  ·  auth.py  ·  alerts.py                           │
-   │                                                              │
-   │   ┌────────────┐    ┌──────────────┐                         │
-   │   │  poller    │    │  discovery   │                         │
-   │   │ (asyncio)  │    │  (LAN scan)  │                         │
-   │   └─────┬──────┘    └──────┬───────┘                         │
-   │         │                  │                                 │
-   │         ▼                  ▼                                 │
-   │   ┌──────────────────────────────┐                           │
-   │   │   miners/  driver layer      │                           │
-   │   │   bitaxe · canaan · braiins  │                           │
-   │   └──────────────┬───────────────┘                           │
-   │                  │                                           │
-   │                  ▼                                           │
-   │           ┌─────────────┐                                    │
-   │           │  SQLite db  │   (data/minerwatch.db)             │
-   │           └─────────────┘                                    │
-   └──────────────────────────────────────────────────────────────┘
-                                 │
-                                 ▼  TCP / HTTP polling every 5s
-                        ┌─────────────────┐
-                        │  Miners on LAN  │
-                        └─────────────────┘
+                  ┌─────────────────────────┐    ┌─────────────────┐
+                  │  Browser (Chrome / etc) │    │   Telegram app  │
+                  │  index · miner · setts  │    │   (phone, etc)  │
+                  └────────────┬────────────┘    └────────▲────────┘
+                               │  HTTP / WebPush          │
+                               ▼                          │  Bot API
+   ┌─────────────────────────────────────────────────────────────────┐
+   │                          FastAPI app                            │
+   │  main.py  ·  auth.py  ·  alerts.py  ·  auto_control.py (PID)    │
+   │                                                                 │
+   │   ┌────────────┐  ┌──────────────┐  ┌─────────────────────┐     │
+   │   │  poller    │  │  discovery   │  │  alerts dispatcher  │     │
+   │   │ (asyncio,  │  │ (LAN /24     │  │  WebPush + Telegram │     │
+   │   │  every 5s) │  │  on demand)  │  │ in parallel         │     │
+   │   └─────┬──────┘  └──────┬───────┘  └─────────────────────┘     │
+   │         │                │                                      │
+   │         ▼                ▼                                      │
+   │   ┌────────────────────────────────────────┐                    │
+   │   │       miners/  driver layer            │                    │
+   │   │   bitaxe · canaan · braiins (poll +    │                    │
+   │   │   fan/freq/voltage/restart write API)  │                    │
+   │   └──────────────┬─────────────────────────┘                    │
+   │                  │                                              │
+   │                  ▼                                              │
+   │           ┌─────────────┐                                       │
+   │           │  SQLite db  │   (data/minerwatch.db)                │
+   │           │  raw 48h /  │                                       │
+   │           │  1m 30d /   │                                       │
+   │           │  1h 2y      │                                       │
+   │           └─────────────┘                                       │
+   └─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼  TCP / HTTP polling every 5 s
+                     ┌─────────────────┐
+                     │  Miners on LAN  │
+                     └─────────────────┘
 ```
 
 More detail in [docs/architecture.md](docs/architecture.md).
@@ -242,49 +276,99 @@ the database).
 
 Highlights:
 
-- `polling.interval_seconds` — how often miners are polled (default 5s)
+- `polling.interval_seconds` — how often miners are polled (default 5 s)
+- `polling.hashrate_smoothing_seconds` — tau of the server-side EMA
+  applied to hashrate (default 60 s, set 0 to see raw firmware values)
 - `network.scan_cidr` — subnet for auto-discovery (`auto` picks the host's
   current LAN, e.g. `192.168.1.0/24`)
-- `alerts.temp_chip_threshold`, `alerts.temp_vr_threshold` — alert thresholds
-- `auth.enabled` — turn on bearer-token auth
+- `alerts.temp_chip_threshold`, `alerts.temp_vr_threshold`,
+  `alerts.offline_threshold_seconds`, `alerts.repeat_seconds` —
+  thresholds and re-alert cadence
+- `alerts.push_enabled`, `alerts.telegram_enabled` — independent
+  kill-switches for the two notification channels
+- `storage.retention_raw_hours` / `retention_1m_days` /
+  `retention_1h_days` — tiered retention (defaults: 48 h / 30 d / 730 d).
+  The legacy `storage.retention_days` is honoured as an alias for the
+  1-minute tier so older configs keep working
+- `auth.enabled`, `auth.password` — turn on password protection
 
 Full reference: [docs/configuration.md](docs/configuration.md).
 
-## Push notifications
+## Notifications
 
-On first launch MinerWatch generates a VAPID key pair and stores it in
-`data/vapid_keys.json` (treat this as private — it identifies your server
-to subscribed browsers). On the **Settings** page click *Enable
-notifications* to grant Chrome permission. From then on you'll get native
-OS notifications for:
+MinerWatch ships with two independent alert channels you can enable
+side-by-side. The dispatcher fans the same alert payload out to both in
+parallel, so a failure on one channel never blocks the other.
+
+Alerts fire for:
 
 - Chip / VR temperature over threshold
 - Miner offline beyond `offline_threshold_seconds`
-- Miner coming back online
-- Start / stop events
+- Miner coming back online (recovery)
+- New all-time best share record
+- Block found (share difficulty ≥ network difficulty)
 
-Re-alerts fire every 600 seconds while a critical condition persists, with a
-sticky banner in the dashboard.
+Re-alerts fire every `alerts.repeat_seconds` (default 600 s) while a
+critical condition persists, with a sticky banner in the dashboard.
+
+### Browser push (Web Push + VAPID)
+
+On first launch MinerWatch generates a VAPID key pair and stores it in
+`data/vapid_keys.json` (treat this as private — it identifies your server
+to subscribed browsers). On *Settings → Notifications* click *Enable
+notifications* to grant your browser permission. From then on you'll get
+native OS notifications.
 
 > **macOS note**: in addition to the per-site permission, you also need to
 > allow notifications at the system level under *System Settings →
-> Notifications → Google Chrome*. See
-> [docs/faq.md](docs/faq.md).
+> Notifications → Google Chrome*. See [docs/faq.md](docs/faq.md).
 
-## Optional auth
+> **HTTPS caveat**: browsers expose the Web Push API only on `https://`
+> or `http://localhost`. If you reach MinerWatch from another device on
+> the LAN (`http://192.168.1.x:8000`) push will show as "not supported"
+> on that browser — use the Telegram channel below instead.
+
+### Telegram bot
+
+Works on any device (iPhone, Android, desktop) and doesn't require HTTPS,
+because MinerWatch (the server) is what calls the Telegram Bot API.
+
+1. Open Telegram, talk to **@BotFather**, send `/newbot`, copy the token.
+2. *Settings → Notifications*: paste the token, click *Save all*.
+3. Open your new bot in Telegram and send `/start` (or any message) so
+   the bot can see your chat.
+4. Click **Find my chat ID** in MinerWatch. Pick your chat → the ID
+   gets filled in automatically.
+5. Tick **Send Telegram notifications**, click *Save all*, and **Send
+   test message** to confirm.
+
+For a group: add the bot to the group, send any message, then use
+"Find my chat ID" — group IDs are negative (e.g. `-1001234567890`).
+
+## Optional password protection
 
 The defaults assume your home LAN is trusted, so no password is required.
-To turn auth on, open *Settings → Password protection*, set a password,
-and save — every API request and frontend page will then require the bearer
-token.
+To turn auth on, open *Settings → Security → Password protection*, set a
+password, and save — every API request and frontend page will then
+require authentication.
+
+Under the hood MinerWatch accepts either an `Authorization: Bearer
+<password>` header or an `mw_token=<password>` cookie. The cookie is set
+automatically when you submit the login form at `/login`, so the
+dashboard "just works" in a browser; the bearer header is there for
+scripted access and curl.
 
 ## Discovery
 
-On startup (and periodically) MinerWatch scans the configured subnet for
-ports 80 (Bitaxe-class) and 4028 (cgminer / Avalon / Braiins). Detected
-devices are auto-added and identified by MAC, so DHCP lease changes don't
-break the time series. You can also add a miner manually from the UI by
-hostname or IP.
+When you click **Scan network** on the dashboard, MinerWatch scans the
+configured subnet for ports 80 (Bitaxe-class) and 4028 (cgminer / Avalon
+/ Braiins) and auto-registers any miner it finds. Devices are identified
+by MAC, so DHCP lease changes don't break the time series.
+
+Discovery is **on demand** by design — a continuous /24 scan would make
+noise on the LAN every few minutes and isn't necessary on a stable home
+network. Re-run *Scan network* whenever you add or move a miner, or add
+one manually by hostname / IP from *Add miner*.
 
 The default `network.scan_cidr: "auto"` resolves at runtime to the
 host's own /24 (e.g. if the Mac/Pi has IP `192.168.0.42`, the scanned
@@ -375,17 +459,34 @@ More: [docs/faq.md](docs/faq.md).
 ## Adding a new miner driver
 
 In short: drop a new file in `backend/miners/`, subclass `MinerDriver`,
-implement `async def sample(self) -> MinerSample`, and register it. Full
-walkthrough with a copy-pasteable template:
+implement `async def poll(self) -> MinerSample`, optionally override the
+write methods (`set_fan_speed`, `set_frequency`, `set_voltage`, `restart`)
+plus the capability flags, and register it in `backend/miners/__init__.py`.
+Full walkthrough with a copy-pasteable template:
 [docs/adding-a-miner.md](docs/adding-a-miner.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
+Done:
+
 - [x] Best-share tracker (session / all-time per miner + fleet) with push
+- [x] Block-find detection + trophy card
+- [x] Server-side auto-fan PID controller
+- [x] Telegram bot in addition to Web Push
+- [x] Solo-lottery odds card (network difficulty vs your hashrate)
+- [x] Top best shares leaderboard
+- [x] Per-miner Hardware tab with grouped readouts
+- [x] Umbrel App Store package
+
+Next:
+
+- [ ] €/kWh cost calculator + ROI dashboard (Analytics page with Energy
+      and Costs sub-tabs)
 - [ ] Scheduling work mode based on electricity prices / solar production
-- [ ] €/kWh cost calculator + ROI dashboard
-- [ ] Solo-lottery odds card (network difficulty vs your hashrate)
+- [ ] Anomaly detection (z-score on hashrate / temperature drift)
+- [ ] Pool failover (primary / secondary with auto-switch)
+- [ ] Webhook out (Discord / Slack / ntfy / Apprise / generic POST)
 - [ ] MQTT export + Home Assistant discovery
 - [ ] Remote access guidance (Tailscale, reverse tunnel)
 - [ ] Test suite (currently none — contributions welcome)

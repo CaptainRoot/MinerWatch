@@ -1221,3 +1221,329 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
     border-radius: 50%;
     display: inline-block;
 }
+
+/* ---------- Predictions card (dashboard) ---------- */
+/* Statistical widget answering "when will I beat my best / find a block".
+   Two blocks side-by-side on desktop, stacked on narrow screens. */
+
+.predictions-card { margin-top: 18px; }
+.predictions-card.hidden { display: none; }
+
+.predictions-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.predictions-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.6;
+    text-align: right;
+}
+
+.predictions-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+}
+
+.prediction-block {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.prediction-block-header { display: flex; flex-direction: column; gap: 2px; }
+
+.prediction-block-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.prediction-block-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.prediction-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 8px 0;
+}
+
+.prediction-eta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+.prediction-eta-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+}
+.prediction-eta-value {
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary);
+}
+
+.prediction-bars { display: flex; flex-direction: column; gap: 8px; }
+
+.prediction-bar-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 70px;
+    gap: 8px;
+    align-items: center;
+}
+
+.prediction-bar-label {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.prediction-bar-track {
+    height: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.prediction-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-strong), var(--primary));
+    transition: width .25s ease;
+}
+
+.prediction-bar-value {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--text);
+}
+
+/* ---------- Top best shares leaderboard ---------- */
+
+.top-shares-card { margin-top: 18px; }
+.top-shares-card.hidden { display: none; }
+
+.top-shares-body {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.top-share-header,
+.top-share-row {
+    display: grid;
+    grid-template-columns: 56px 1fr 130px 110px;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+}
+
+.top-share-header {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding-bottom: 6px;
+    padding-top: 4px;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+}
+
+.top-share-row {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+}
+
+.top-share-row:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-strong);
+}
+
+.top-share-rank {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.top-share-name a {
+    font-weight: 600;
+    color: var(--text);
+}
+.top-share-name a:hover { color: var(--primary); }
+
+.top-share-family {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--text-dim);
+}
+
+.top-share-value {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary);
+    text-align: right;
+}
+
+.top-share-when {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+@media (max-width: 640px) {
+    .top-share-header,
+    .top-share-row {
+        grid-template-columns: 44px 1fr 90px;
+    }
+    .top-share-when { display: none; }
+    .prediction-bar-row {
+        grid-template-columns: 90px 1fr 56px;
+    }
+}
+
+/* ---------- Tabs (P6) ---------- */
+/* Reusable tab-bar shared by miner.html and settings.html. Visually
+   in line with the existing range-buttons; uses the same active pill
+   so the two patterns don't clash. */
+
+.tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+}
+
+.tab-button {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+}
+
+.tab-button:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border);
+    color: var(--text);
+}
+
+.tab-button.active {
+    background: var(--primary-strong);
+    border-color: var(--primary-strong);
+    color: white;
+}
+
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+.tab-pane > .panel + .panel { margin-top: 14px; }
+
+/* ---------- Hardware cards (P5) on miner.html ---------- */
+/* Grouped read-only readouts replacing the old flat <table>.
+   Mirrors MinerSentinel's per-device hardware view but uses our existing
+   visual vocabulary (.panel + grid of cards). */
+
+.hw-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.hw-card {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+}
+
+.hw-card-title {
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    font-weight: 700;
+}
+
+.hw-card dl {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 12px;
+    margin: 0;
+}
+
+.hw-card dt {
+    color: var(--text-dim);
+    font-size: 12px;
+    align-self: center;
+}
+
+.hw-card dd {
+    margin: 0;
+    text-align: right;
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.hw-card dd code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--bg-card);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+.hw-card .hw-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+}
+.hw-card .hw-pill.ok { color: var(--green); border-color: rgba(74,222,128,0.4); background: rgba(74,222,128,0.10); }
+.hw-card .hw-pill.warn { color: var(--yellow); border-color: rgba(250,204,21,0.45); background: rgba(250,204,21,0.10); }
+.hw-card .hw-pill.bad { color: var(--red); border-color: rgba(248,113,113,0.45); background: rgba(248,113,113,0.10); }

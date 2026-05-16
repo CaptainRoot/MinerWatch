@@ -47,12 +47,16 @@ async function renderAll() {
     renderHardware(data);
     renderControls(data);
     await Promise.all([renderCharts(), renderMinerBestShares(data.miner)]);
+    // Wire tabs after the panes have been populated so the initial
+    // active tab restores correctly from sessionStorage.
+    if (typeof setupTabs === 'function') setupTabs('miner-tabs', { defaultTab: 'overview' });
 }
 
 async function renderLiveOnly() {
     try {
         const data = await api(`/api/miners/${minerId}`);
         renderLiveStats(data);
+        renderHardware(data);  // pool/worker can change without a full reload
         await renderMinerBestShares(data.miner);
     } catch {}
 }
@@ -167,18 +171,149 @@ function renderLiveStats({ miner, last_metric, live_sample }) {
         </div>`).join('');
 }
 
-function renderHardware({ miner, last_metric }) {
+// Hardware view: grouped read-only readouts replacing the old flat
+// table. Cards (Identity / ASIC / Thermal / Fan & Power / Pool & Worker)
+// show only the fields that the driver actually surfaced — null values
+// are skipped instead of rendered as "—" everywhere, so the view stays
+// dense on devices that expose less data.
+function renderHardware({ miner, last_metric, live_sample }) {
     const el = document.getElementById('hw-info');
+    if (!el) return;
     const lm = last_metric || {};
+    const ls = live_sample || {};
+    const raw = (ls && ls.raw) || {};
+
+    // Prefer the live sample (fresher) over the last DB row.
+    const v = (key) => (ls[key] !== null && ls[key] !== undefined) ? ls[key] : lm[key];
+
+    // Helpers to format card rows. Each card emits a <dl> with the rows
+    // that have a non-empty value; an empty card is skipped entirely.
+    const renderCard = (title, rows) => {
+        const live = rows.filter((r) => r && r[1] !== null && r[1] !== undefined && r[1] !== '');
+        if (!live.length) return '';
+        const body = live
+            .map(([k, val]) => `<dt>${escapeHtml(k)}</dt><dd>${val}</dd>`)
+            .join('');
+        return `
+            <div class="hw-card">
+                <div class="hw-card-title">${escapeHtml(title)}</div>
+                <dl>${body}</dl>
+            </div>
+        `;
+    };
+
+    const monoCode = (txt) => `<code>${escapeHtml(String(txt))}</code>`;
+
+    // ---- Identity ----
+    const familyLabel = { bitaxe: 'Bitaxe / NerdQAxe', canaan: 'Canaan / Avalon', braiins: 'Braiins / BMM' }[miner.family] || miner.family;
+    const identity = [
+        ['Family', escapeHtml(familyLabel || '—')],
+        ['Model', escapeHtml(miner.model || ls.model || raw.ASICModel || '—')],
+        ['Board version', raw.boardVersion ? escapeHtml(String(raw.boardVersion)) : null],
+        ['Firmware', escapeHtml(ls.firmware_version || raw.version || raw.firmwareVersion || '—')],
+        ['Hostname', ls.hostname ? escapeHtml(ls.hostname) : (raw.hostname ? escapeHtml(raw.hostname) : null)],
+        ['MAC', miner.mac ? monoCode(miner.mac) : null],
+        ['Host', monoCode(`${miner.host}${miner.port ? ':' + miner.port : ''}`)],
+        ['WiFi RSSI', raw.wifiRSSI !== undefined && raw.wifiRSSI !== null ? `${raw.wifiRSSI} dBm` : null],
+        ['Notes', miner.notes ? escapeHtml(miner.notes) : null],
+    ];
+
+    // ---- ASIC configuration ----
+    const freq = v('frequency_mhz');
+    const volt = v('voltage_mv');
+    // Bitaxe exposes both the requested and the actually measured core
+    // voltage. Show the delta inline when both are present, otherwise
+    // just the available value.
+    const voltRequested = raw.coreVoltage;
+    const voltActual = raw.coreVoltageActual || volt;
+    let voltageCell = null;
+    if (voltRequested && voltActual && Number(voltRequested) !== Number(voltActual)) {
+        voltageCell = `${voltActual} mV <span style="font-size:11px;color:var(--text-dim)">(set ${voltRequested} mV)</span>`;
+    } else if (volt) {
+        voltageCell = `${volt} mV`;
+    }
+    const asicCount = ls.asic_count || raw.asicCount;
+    const expectedHr = raw.expectedHashrate;
+    const asic = [
+        ['Frequency', freq ? `${freq} MHz` : null],
+        ['Core voltage', voltageCell],
+        ['ASIC count', asicCount || null],
+        ['Expected hashrate', expectedHr ? `${expectedHr} GH/s` : null],
+        ['Small core count', raw.smallCoreCount || null],
+        ['Overheat mode', raw.overheat_mode !== undefined
+            ? (raw.overheat_mode ? '<span class="hw-pill bad">Triggered</span>' : '<span class="hw-pill ok">Normal</span>')
+            : null],
+    ];
+
+    // ---- Thermal ----
+    const tChip = v('temp_chip_c');
+    const tVr = v('temp_vr_c');
+    const tIn = ls.temp_inlet_c;
+    const tOut = ls.temp_outlet_c;
+    const tAvg = ls.temp_avg_c;
+    const target = miner.auto_target_c || raw.temptarget || null;
+    const tempVal = (t) => t !== null && t !== undefined
+        ? `<span class="${tempClass(t)}">${fmtNum(t, 1)} °C</span>`
+        : null;
+    const thermal = [
+        ['Max chip temp', tempVal(tChip)],
+        ['Average chip temp', tempVal(tAvg)],
+        [miner.family === 'canaan' ? 'Air outlet temp' : 'VR temp', tempVal(tVr)],
+        ['Air inlet temp', tempVal(tIn)],
+        ['Air outlet temp', miner.family !== 'canaan' ? tempVal(tOut) : null],
+        ['Target temp', target ? `${fmtNum(target, 1)} °C` : null],
+    ];
+
+    // ---- Fan & Power ----
+    const fanRpm = v('fan_rpm');
+    const fanPct = v('fan_pct');
+    const fanMode = miner.fan_mode || (raw.autofanspeed === 1 ? 'firmware' : null);
+    const fanModeLabel = {
+        manual: '✋ Manual',
+        minerwatch: '🎯 AUTO (MinerWatch)',
+        firmware: '🤖 AUTO (firmware)',
+    }[fanMode];
+    const power = v('power_w');
+    const hashrate = v('hashrate_ths');
+    const eff = (power && hashrate) ? (power / hashrate) : null;
+    const fanPower = [
+        ['Fan speed', fanPct !== null && fanPct !== undefined ? `${fmtNum(fanPct, 0)} %` : null],
+        ['Fan RPM', fanRpm || null],
+        ['Fan mode', fanModeLabel ? `<span class="hw-pill">${fanModeLabel}</span>` : null],
+        ['Power', power ? `${fmtNum(power, 1)} W` : null],
+        ['Nominal voltage', raw.nominalVoltage ? `${raw.nominalVoltage} V` : null],
+        ['Measured voltage', raw.voltage ? `${fmtNum(raw.voltage / 1000.0, 3)} V` : null],
+        ['Efficiency', eff ? `${fmtNum(eff, 1)} W/TH` : null],
+        ['Max power', raw.maxPower ? `${raw.maxPower} W` : null],
+        ['Overclock', raw.overclockEnabled !== undefined
+            ? (raw.overclockEnabled ? '<span class="hw-pill warn">Enabled</span>' : '<span class="hw-pill">Disabled</span>')
+            : null],
+    ];
+
+    // ---- Pool & worker ----
+    const poolUrl = v('pool_url');
+    const worker = v('worker');
+    const uptime = v('uptime_s');
+    const accepted = v('accepted');
+    const rejected = v('rejected');
+    const pool = [
+        ['Pool', poolUrl ? escapeHtml(poolUrl) : null],
+        ['Worker', worker ? escapeHtml(worker) : null],
+        ['Stratum user', raw.stratumUser && raw.stratumUser !== worker ? escapeHtml(raw.stratumUser) : null],
+        ['Fallback pool', raw.fallbackStratumURL ? escapeHtml(raw.fallbackStratumURL) : null],
+        ['Accepted shares', accepted !== null && accepted !== undefined ? Number(accepted).toLocaleString() : null],
+        ['Rejected shares', rejected !== null && rejected !== undefined ? Number(rejected).toLocaleString() : null],
+        ['Uptime', uptime ? fmtUptime(uptime) : null],
+    ];
+
     el.innerHTML = `
-        <table>
-            <tr><th>Model</th><td>${escapeHtml(miner.model || '—')}</td></tr>
-            <tr><th>MAC</th><td style="font-family:ui-monospace,monospace">${escapeHtml(miner.mac || '—')}</td></tr>
-            <tr><th>Host</th><td>${escapeHtml(miner.host)}${miner.port ? ':' + miner.port : ''}</td></tr>
-            <tr><th>Pool</th><td>${escapeHtml(lm.pool_url || '—')}</td></tr>
-            <tr><th>Worker</th><td>${escapeHtml(lm.worker || '—')}</td></tr>
-            <tr><th>Notes</th><td>${escapeHtml(miner.notes || '')}</td></tr>
-        </table>
+        <div class="hw-grid">
+            ${renderCard('Identity', identity)}
+            ${renderCard('ASIC configuration', asic)}
+            ${renderCard('Thermal', thermal)}
+            ${renderCard('Fan & Power', fanPower)}
+            ${renderCard('Pool & Worker', pool)}
+        </div>
     `;
 }
 

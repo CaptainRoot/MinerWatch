@@ -1,0 +1,53 @@
+# MinerWatch — Umbrel App Store docker-compose.
+#
+# Why two compose files? The repo root has a compose meant for plain
+# Docker installs (Linux box, Raspberry Pi). This one is the variant
+# the Umbrel runtime expects: it adds the app_proxy service Umbrel
+# requires for routing, and pins persistent data under ${APP_DATA_DIR}
+# (Umbrel's per-app data dir) rather than ./data.
+#
+# IMPORTANT — network_mode: host
+# ------------------------------
+# MinerWatch needs to scan the host's /24 to auto-discover miners (and
+# subsequently reach them by their LAN IP). Bridge networking would put
+# the container behind NAT and the discovery probes would never reach
+# 192.168.x.x. We therefore run the `web` service on host network.
+#
+# Umbrel's default routing through app_proxy still works because the
+# proxy talks to the host on the published port (8000). The trade-off:
+# the dashboard *also* listens on the host's port 8000 directly. If
+# that's already taken on your umbrelOS box, change MINERWATCH_PORT and
+# adjust the proxy below.
+
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: 127.0.0.1
+      APP_PORT: 8000
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    image: ghcr.io/imlenti/minerwatch:0.1.0
+    user: "1000:1000"
+    restart: on-failure
+    stop_grace_period: 1m
+
+    # Required for LAN auto-discovery and direct miner polling.
+    # See the long comment at the top of this file for context.
+    network_mode: host
+
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/data
+
+    environment:
+      MINERWATCH_HOST: "0.0.0.0"
+      MINERWATCH_PORT: "8000"
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3

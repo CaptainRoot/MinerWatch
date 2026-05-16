@@ -723,6 +723,49 @@ async def get_fleet_best_records() -> dict[str, dict[str, Any] | None]:
     return out
 
 
+async def get_fleet_best_records_ranked(
+    scope: str = "alltime",
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Ritorna la classifica dei miglior best-record per scope.
+
+    Una riga per miner (lo schema `best_records` ha PK su (miner_id, scope)),
+    ordinata per difficoltà discendente. Pensato per la leaderboard
+    "Top best shares" nella dashboard. ``scope`` può essere 'alltime' o
+    'session'; valori sconosciuti tornano lista vuota. Solo i miner
+    ``enabled = 1`` partecipano.
+
+    Output: list[ {miner_id, miner_name, family, value, ts} ].
+    """
+    if scope not in _BEST_SCOPES:
+        return []
+    limit = max(1, min(int(limit), 100))
+    sql = """
+    SELECT b.value, b.ts,
+           m.id AS miner_id, m.name AS miner_name, m.family AS family
+    FROM best_records b
+    JOIN miners m ON m.id = b.miner_id
+    WHERE m.enabled = 1 AND b.scope = ?
+    ORDER BY b.value DESC
+    LIMIT ?
+    """
+    out: list[dict[str, Any]] = []
+    async with connect() as conn:
+        async with conn.execute(sql, (scope, limit)) as cur:
+            rows = await cur.fetchall()
+    for r in rows:
+        out.append(
+            {
+                "miner_id": int(r["miner_id"]),
+                "miner_name": r["miner_name"],
+                "family": r["family"],
+                "value": float(r["value"]),
+                "ts": int(r["ts"]),
+            }
+        )
+    return out
+
+
 # Columns returned by metrics_range across all tiers. Picked so the
 # frontend (miner.js) and any downstream consumer can read the same
 # shape regardless of which tier served the query. NOTE: the raw JSON
