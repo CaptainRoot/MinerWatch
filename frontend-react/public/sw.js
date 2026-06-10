@@ -52,7 +52,18 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    const minerId = event.notification.data && event.notification.data.miner_id;
+    const data = event.notification.data || {};
+
+    // External deep-link (e.g. wallet_watch sends the mempool.space
+    // address page). Only https URLs are honored, so a malformed
+    // payload can never open exotic schemes from a notification.
+    const external = typeof data.url === 'string' && data.url.startsWith('https://') ? data.url : null;
+    if (external) {
+        event.waitUntil(self.clients.openWindow ? self.clients.openWindow(external) : Promise.resolve());
+        return;
+    }
+
+    const minerId = data.miner_id;
     const url = minerId ? `/miner/${minerId}` : '/';
     event.waitUntil(self.clients.matchAll({ type: 'window' }).then((cs) => {
         for (const c of cs) {

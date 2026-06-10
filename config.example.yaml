@@ -45,6 +45,17 @@ alerts:
   temp_vr_threshold: 90
   # Seconds after which a miner is considered OFFLINE if it doesn't reply.
   offline_threshold_seconds: 60
+  # ---- Watched Bitcoin addresses ----
+  # Notify (push + Telegram) when a watched address receives a NEW
+  # CONFIRMED incoming transaction, checked via mempool.space about
+  # once a minute. Managed from Settings → Alerts in the UI; the value
+  # is a JSON string, e.g.
+  #   '[{"address": "bc1q…", "label": "Donations"}]'
+  wallet_watch_enabled: true
+  wallet_watch_addresses: "[]"
+  # Incoming amounts at or below this many sats are flagged as a
+  # potential dust attack (still notified, with a warning).
+  wallet_watch_dust_sats: 546
 
 auth:
   # If true, the API and UI require the bearer token (settings.password).

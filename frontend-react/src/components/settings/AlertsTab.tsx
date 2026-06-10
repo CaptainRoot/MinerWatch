@@ -1,3 +1,5 @@
+import { Plus, Trash2, Wallet } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -7,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { useAckAlert, useAllAlerts } from '@/api/hooks';
 import { useState } from 'react';
 import type { AlertSeverity } from '@/lib/types';
-import type { SettingsFormState } from './SettingsForm';
+import { BTC_ADDRESS_RE, normalizeBtcAddress } from './SettingsForm';
+import type { SettingsFormState, WatchedAddress } from './SettingsForm';
 
 interface Props {
   form: SettingsFormState;
@@ -81,8 +84,142 @@ export function AlertsTab({ form, setForm }: Props) {
         </CardContent>
       </Card>
 
+      <WatchedAddressesCard form={form} setForm={setForm} />
+
       <AlertHistoryCard />
     </div>
+  );
+}
+
+function WatchedAddressesCard({ form, setForm }: Props) {
+  const rows = form.walletAddresses;
+
+  const updateRow = (index: number, patch: Partial<WatchedAddress>) => {
+    const next = rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
+    setForm({ ...form, walletAddresses: next });
+  };
+
+  const removeRow = (index: number) => {
+    setForm({ ...form, walletAddresses: rows.filter((_, i) => i !== index) });
+  };
+
+  const addRow = () => {
+    setForm({ ...form, walletAddresses: [...rows, { address: '', label: '' }] });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-chart-power/15 text-chart-power">
+            <Wallet className="h-4 w-4" />
+          </div>
+          <div>
+            <CardTitle className="text-base">Watched Bitcoin addresses</CardTitle>
+            <CardDescription>
+              Get notified when an address receives a new confirmed incoming transaction. Checked
+              via mempool.space about once a minute.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/30 p-3">
+          <div>
+            <div className="text-sm font-semibold">Watch addresses</div>
+            <p className="text-xs text-muted-foreground">
+              Pauses checking without losing the list below. Notifications go out on the channels
+              enabled in the Notifications tab.
+            </p>
+          </div>
+          <Switch
+            checked={form.walletWatchEnabled}
+            onCheckedChange={(v) => setForm({ ...form, walletWatchEnabled: v })}
+          />
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No addresses yet — add the one you want to keep an eye on (e.g. your donation or solo
+            payout address).
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {rows.map((row, i) => {
+              const normalized = normalizeBtcAddress(row.address);
+              const invalid = normalized.length > 0 && !BTC_ADDRESS_RE.test(normalized);
+              return (
+                <div key={i} className="space-y-1">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      className={`font-mono text-xs sm:flex-[3] ${invalid ? 'border-destructive' : ''}`}
+                      type="text"
+                      placeholder="bc1q… / 3… / 1…"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={row.address}
+                      onChange={(e) => updateRow(i, { address: e.target.value })}
+                      aria-label={`Watched address ${i + 1}`}
+                      aria-invalid={invalid}
+                    />
+                    <div className="flex gap-2 sm:flex-[2]">
+                      <Input
+                        type="text"
+                        placeholder="Label (optional, e.g. Donations)"
+                        autoComplete="off"
+                        value={row.label}
+                        onChange={(e) => updateRow(i, { label: e.target.value })}
+                        aria-label={`Label for watched address ${i + 1}`}
+                      />
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="shrink-0 self-center"
+                        onClick={() => removeRow(i)}
+                        aria-label={`Remove watched address ${i + 1}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  {invalid && (
+                    <p className="text-xs text-destructive">
+                      Doesn't look like a Bitcoin address — this row won't be saved.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <Button variant="subtle" onClick={addRow}>
+          <Plus className="h-4 w-4" />
+          Add address
+        </Button>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <NumField
+            id="alerts.wallet_watch_dust_sats"
+            label="Dust threshold (sats)"
+            value={form.walletDustSats}
+            min={0}
+            max={100000}
+            onChange={(v) => setForm({ ...form, walletDustSats: v })}
+          />
+          <p className="self-end pb-2 text-xs text-muted-foreground">
+            Incoming amounts at or below this are flagged as a potential dust attack (you still
+            get notified, with a warning).
+          </p>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Transactions are notified once <strong>confirmed</strong> (in a block), so expect them a
+          few minutes after they appear in the mempool. Clicking the notification opens the
+          address on mempool.space. Remember to click <strong>Save all</strong> after editing.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

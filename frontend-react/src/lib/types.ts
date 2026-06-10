@@ -486,6 +486,10 @@ export interface SettingsCurrent {
     telegram_enabled: boolean;
     telegram_chat_id?: string | null;
     telegram_token_set?: boolean;
+    wallet_watch_enabled?: boolean;
+    // JSON string: [{"address": "bc1…", "label": "Donations"}, …]
+    wallet_watch_addresses?: string;
+    wallet_watch_dust_sats?: number;
   };
   storage: {
     retention_raw_hours: number;

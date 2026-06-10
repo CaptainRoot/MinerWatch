@@ -87,6 +87,19 @@ class AlertsCfg:
     # String (not int) so it transparently supports group chats whose
     # IDs are negative numbers like "-1001234567890".
     telegram_chat_id: str = ""
+    # ---- Watched Bitcoin addresses (see backend/wallet_watch.py). ----
+    # Feature switch for the whole watcher loop. With the default empty
+    # address list this is a no-op, so True is a safe default: adding an
+    # address in Settings is the only step needed to activate it.
+    wallet_watch_enabled: bool = True
+    # JSON string (NOT a YAML list) so it round-trips through the
+    # settings DB and apply_overrides(), which only handle scalars.
+    # Shape: [{"address": "bc1…", "label": "Donations"}, …]
+    wallet_watch_addresses: str = "[]"
+    # Confirmed incoming amounts at or below this many sats are still
+    # notified, but flagged as a potential dust attack instead of a
+    # regular payment. 546 sats = the classic P2PKH dust limit.
+    wallet_watch_dust_sats: int = 546
 
 
 @dataclass

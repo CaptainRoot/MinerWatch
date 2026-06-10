@@ -206,9 +206,16 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
     # We use plain text (no parse_mode) to avoid the Telegram API
     # rejecting messages because of an accidental ``_`` or ``*`` in
     # miner names. Notifications stay readable without formatting.
+    # ``telegram_extra`` carries channel-specific trailing lines —
+    # e.g. wallet_watch appends explorer URLs here, which Telegram
+    # auto-links in plain text while the push body stays clean.
+    parts = [title]
     if body:
-        return f"{title}\n{body}"
-    return title
+        parts.append(body)
+    extra = str(payload.get("telegram_extra", "")).strip()
+    if extra:
+        parts.append(extra)
+    return "\n".join(parts)
 
 
 async def send_telegram(payload: dict[str, Any]) -> tuple[bool, str]:

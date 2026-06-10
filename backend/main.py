@@ -43,6 +43,7 @@ from .poller import poller
 from .guardian import guardian, GUARDIAN_FAMILIES
 from .log_streamer import log_streamer
 from .mqtt import mqtt_publisher, test_connection as mqtt_test_connection
+from .wallet_watch import wallet_watcher
 from . import updater
 
 logging.basicConfig(
@@ -148,10 +149,15 @@ async def on_startup() -> None:
     # Optional MQTT publisher (Home Assistant / ESPHome). Self-disables when
     # mqtt.enabled is false or the aiomqtt dependency is missing.
     await mqtt_publisher.start()
+    # Watched Bitcoin addresses: notifies on new confirmed incoming
+    # transactions via mempool.space. No-op while the address list in
+    # Settings → Alerts is empty. See backend/wallet_watch.py.
+    await wallet_watcher.start()
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
+    await wallet_watcher.stop()
     await mqtt_publisher.stop()
     await donation_controller.stop()
     await log_streamer.stop()

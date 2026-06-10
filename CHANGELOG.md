@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.11] — 2026-06-10
+
+### Added
+
+- **Watched Bitcoin addresses — get notified when a payment lands.** New card in
+  Settings → Alerts: list one or more BTC addresses (optional label, "+" to add
+  more) and MinerWatch notifies on every **new confirmed incoming transaction**,
+  on the same channels as every other alert (browser push + Telegram). Clicking
+  the push notification opens the address page on mempool.space; the Telegram
+  message carries both the transaction and the address links. Incoming amounts
+  at or below a configurable dust threshold (default 546 sats) are still
+  notified but flagged as "Potential dust attack — do not spend it".
+  Detection details: one mempool.space query per address per minute (the same
+  source already used for the network difficulty), confirmed-only so an RBF
+  replacement can never produce a ghost notification, incoming-only so your own
+  spends and change stay silent, a silent bootstrap so adding an address with
+  existing history doesn't flood you, and persistent per-txid dedup so restarts
+  never replay old transactions.
+
 ## [1.10.9] — 2026-06-08
 
 ### Changed

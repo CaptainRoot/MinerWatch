@@ -272,6 +272,25 @@ CREATE INDEX IF NOT EXISTS idx_donation_miners_status
     ON donation_miners(status);
 CREATE INDEX IF NOT EXISTS idx_donation_miners_donation
     ON donation_miners(donation_id);
+
+-- ---------- Watched Bitcoin addresses ----------
+-- One state row per watched address. The row's existence means the
+-- address went through the silent bootstrap (its confirmed history was
+-- marked seen without notifying) -- needed so an address with ZERO
+-- history doesn't re-bootstrap forever and swallow its first payment.
+CREATE TABLE IF NOT EXISTS wallet_watch_state (
+    address         TEXT PRIMARY KEY,
+    bootstrapped_ts INTEGER NOT NULL
+);
+
+-- Confirmed txids already processed per address, the dedup spine of
+-- wallet_watch.py. Persisted so a restart never re-notifies old txs.
+CREATE TABLE IF NOT EXISTS wallet_seen_txs (
+    address         TEXT NOT NULL,
+    txid            TEXT NOT NULL,
+    ts              INTEGER NOT NULL,
+    PRIMARY KEY (address, txid)
+);
 """
 
 
@@ -1325,6 +1344,73 @@ async def purge_push_subs() -> int:
         cur = await conn.execute("DELETE FROM push_subscriptions")
         await conn.commit()
         return cur.rowcount or 0
+
+
+# ---------- Watched Bitcoin addresses ----------
+
+async def wallet_is_bootstrapped(address: str) -> bool:
+    async with connect() as conn:
+        async with conn.execute(
+            "SELECT 1 FROM wallet_watch_state WHERE address = ?", (address,)
+        ) as cur:
+            row = await cur.fetchone()
+    return row is not None
+
+
+async def wallet_mark_bootstrapped(address: str) -> None:
+    async with connect() as conn:
+        await conn.execute(
+            "INSERT INTO wallet_watch_state(address, bootstrapped_ts) VALUES(?, ?) "
+            "ON CONFLICT(address) DO NOTHING",
+            (address, now_ts()),
+        )
+        await conn.commit()
+
+
+async def wallet_seen_txids(address: str) -> set[str]:
+    async with connect() as conn:
+        async with conn.execute(
+            "SELECT txid FROM wallet_seen_txs WHERE address = ?", (address,)
+        ) as cur:
+            rows = await cur.fetchall()
+    return {r["txid"] for r in rows}
+
+
+async def wallet_mark_seen(address: str, txids: list[str]) -> None:
+    if not txids:
+        return
+    ts = now_ts()
+    async with connect() as conn:
+        await conn.executemany(
+            "INSERT INTO wallet_seen_txs(address, txid, ts) VALUES(?, ?, ?) "
+            "ON CONFLICT(address, txid) DO NOTHING",
+            [(address, txid, ts) for txid in txids],
+        )
+        await conn.commit()
+
+
+async def wallet_prune_state(keep_addresses: list[str]) -> None:
+    """Drop bootstrap/seen rows for addresses no longer watched.
+
+    Keeps the tables tidy and guarantees that removing an address and
+    re-adding it later triggers a fresh silent bootstrap instead of a
+    replay of every tx that confirmed in between.
+    """
+    async with connect() as conn:
+        if keep_addresses:
+            marks = ",".join("?" for _ in keep_addresses)
+            await conn.execute(
+                f"DELETE FROM wallet_watch_state WHERE address NOT IN ({marks})",
+                keep_addresses,
+            )
+            await conn.execute(
+                f"DELETE FROM wallet_seen_txs WHERE address NOT IN ({marks})",
+                keep_addresses,
+            )
+        else:
+            await conn.execute("DELETE FROM wallet_watch_state")
+            await conn.execute("DELETE FROM wallet_seen_txs")
+        await conn.commit()
 
 
 # ---------- Fan / auto control ----------
