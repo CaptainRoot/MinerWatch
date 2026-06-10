@@ -52,6 +52,8 @@ desktop.ini
 HANDOFF.md
 NOTES.md
 TODO.md
+RELEASE.md
+CLAUDE.md
 push-initial.sh
 
 # Documentation assets aren't needed at runtime; the README lives

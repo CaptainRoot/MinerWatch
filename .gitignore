@@ -42,6 +42,8 @@ config.yaml
 HANDOFF.md
 NOTES.md
 TODO.md
+RELEASE.md
+CLAUDE.md
 
 # Vecchio progetto separato (non parte di MinerWatch)
 canaan /
