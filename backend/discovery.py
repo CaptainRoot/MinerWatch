@@ -3,7 +3,8 @@
 
 Scans the subnet (configurable CIDR) probing ports 80 and 4028.
 For every IP that answers we try the supported drivers to determine
-the family (Bitaxe/NerdQAxe via REST, Avalon/Braiins via cgminer-API).
+the family (Bitaxe/NerdQAxe/BitForge via REST, Avalon/Braiins via
+cgminer-API).
 
 How it works:
 - Non-blocking TCP socket with a short timeout (~0.4s)
@@ -74,19 +75,49 @@ def _enumerate_hosts(cidr: str) -> Iterable[str]:
         yield str(host)
 
 
+def _pretty_bitforge_model(device_model: str) -> str:
+    """Humanise a forge-os ``deviceModel`` identifier.
+
+    forge-os stores the model as an NVS enum name ("BITFORGE_NANO"),
+    not a display string like AxeOS's "Gamma"/"SupraHex". Turn it into
+    "BitForge Nano"; future family members ("BITFORGE_<X>") get the
+    same treatment.
+    """
+    pretty: list[str] = []
+    for tok in device_model.replace("-", "_").split("_"):
+        if not tok:
+            continue
+        pretty.append("BitForge" if tok.lower() == "bitforge" else tok.capitalize())
+    return " ".join(pretty) or "BitForge"
+
+
 async def _identify_bitaxe(host: str) -> dict | None:
     """Identify an AxeOS-family host listening on port 80.
 
-    Bitaxe and NerdQAxe/NerdOctaxe speak the same REST API on the same
-    port. The authoritative way to tell them apart — and to obtain a
-    human-readable model name — is ``deviceModel`` from
-    ``/api/system/asic`` (e.g. "Gamma", "Supra", "SupraHex" for the
-    classic Bitaxe line; "NerdQAxe++", "NerdOCTAXE-Gamma" for the
-    multi-chip fork). See https://osmu.wiki/bitaxe/api.
+    Bitaxe, NerdQAxe/NerdOctaxe and BitForge (forge-os) all speak the
+    same REST API on the same port. The authoritative way to tell them
+    apart — and to obtain a human-readable model name — is
+    ``deviceModel`` from ``/api/system/asic`` (e.g. "Gamma", "Supra",
+    "SupraHex" for the classic Bitaxe line; "NerdQAxe++",
+    "NerdOCTAXE-Gamma" for the multi-chip fork; "BITFORGE_NANO" for
+    forge-os). See https://osmu.wiki/bitaxe/api.
 
     Classification, in order of trust:
-      1. ``deviceModel`` contains "nerd"/"qaxe"/"octaxe" → ``nerdoctaxe``
-      2. genuine fork-only telemetry, as a fallback for firmware that
+      1. ``deviceModel`` contains "bitforge" → ``bitforge``. Checked
+         FIRST: the BitForge Nano is a dual-ASIC dual-fan board, so any
+         future forge-os build that starts reporting ``fanCount`` would
+         otherwise trip the NerdOctaxe multi-fan heuristic below.
+      2. ``chiptemp1`` in the live info → ``bitforge``. This is the
+         REQUIRED path for forge-os v1.0 (the factory firmware on
+         shipping Nanos): it has no ``/api/system/asic`` endpoint at
+         all, hence no ``deviceModel`` — verified against a real board.
+         The per-ASIC ``chiptempN`` keys appear in no other
+         AxeOS-derived firmware (stock and the NerdQAxe fork both use
+         ``temp``/``temp2``). Note v1.0 also spells the fan duty
+         ``fanspeed`` lowercase like stock, so the fan field is useless
+         as a discriminator.
+      3. ``deviceModel`` contains "nerd"/"qaxe"/"octaxe" → ``nerdoctaxe``
+      4. genuine fork-only telemetry, as a fallback for firmware that
          doesn't expose ``deviceModel``:
            - ``fanCount > 1``      → multi-fan board
            - ``currentA`` present  → NerdQAxe PSU sensor (the classic
@@ -107,6 +138,25 @@ async def _identify_bitaxe(host: str) -> dict | None:
     # empty dict on older firmware that doesn't expose the endpoint.
     asic = await drv.fetch_asic_info()
     device_model = str(asic.get("deviceModel") or "").strip()
+
+    looks_bitforge = "bitforge" in device_model.lower() or "chiptemp1" in raw
+    if looks_bitforge:
+        if device_model:
+            model = _pretty_bitforge_model(device_model)
+        elif raw.get("ASICModel") == "BM1370" and str(raw.get("asicCount")) == "2":
+            # v1.0 firmware exposes no deviceModel; 2× BM1370 is the
+            # Nano's signature (the only BitForge board to date).
+            model = "BitForge Nano"
+        else:
+            model = sample.model or "BitForge"
+        return {
+            "family": "bitforge",
+            "host": host,
+            "port": PORT_BITAXE,
+            "mac": sample.mac,
+            "model": model,
+            "name": sample.hostname or model or f"BitForge {host}",
+        }
 
     fan_count = raw.get("fanCount")
     try:

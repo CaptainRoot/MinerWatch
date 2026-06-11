@@ -23,6 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from backend.umbrel_widgets import (  # noqa: E402
     BLOCK_CELEBRATION_SECONDS,
+    WIDGET_REFRESH,
     build_fleet_widget,
     build_miners_widget,
 )
@@ -175,6 +176,25 @@ def test_miners_empty_fleet():
 
     assert w["items"] == []
     assert w["noItemsText"] == "No miners discovered yet"
+
+
+# ---------- contract shared by both widgets ----------
+
+def test_payloads_carry_refresh_for_umbreld():
+    """umbreld runs ``ms(widgetData.refresh)`` on the endpoint *response*
+    (the manifest value is never merged in) and ``ms(undefined)`` throws,
+    so a payload without ``refresh`` leaves the widget stuck on its
+    skeleton. Regression test for the 1.11.0 launch bug.
+    """
+    find = {"ts": NOW - 60, "miner_name": "Lucky",
+            "block_height": 905123, "share_difficulty": 1.0e12}
+    payloads = (
+        build_fleet_widget([], {}, best_alltime=None, latest_find=None, now=NOW),
+        build_fleet_widget([], {}, best_alltime=None, latest_find=find, now=NOW),
+        build_miners_widget([], {}, last_seen={}, now=NOW),
+    )
+    for payload in payloads:
+        assert payload["refresh"] == WIDGET_REFRESH
 
 
 if __name__ == "__main__":

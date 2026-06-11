@@ -22,6 +22,7 @@ export const LN_DONATION_ADDRESS = 'forgedfibre517@walletofsatoshi.com';
 export const DONATION_SUPPORTED_FAMILIES: MinerFamily[] = [
   'bitaxe',
   'nerdoctaxe',
+  'bitforge',
 ];
 
 export function familySupportsDonation(family: MinerFamily | null | undefined): boolean {

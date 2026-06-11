@@ -210,6 +210,45 @@ def test_temp_band_picks_source_defaults():
     assert cfg.temp_band("bogus") == (cfg.vr_high_c, cfg.vr_low_c)
 
 
+def test_temp_band_bitforge_vr_runs_hotter():
+    """The BitForge's TPS546 sits ~71 °C at stock (vs the Bitaxe band's
+    70 °C ceiling), so the family gets its own VR band; chip mode and the
+    other families keep the shared defaults."""
+    from backend.config import GuardianCfg
+
+    cfg = GuardianCfg()
+    assert cfg.temp_band("vr", "bitforge") == (
+        cfg.bitforge_vr_high_c,
+        cfg.bitforge_vr_low_c,
+    )
+    assert cfg.bitforge_vr_high_c > cfg.vr_high_c
+    # Same hysteresis deadband as the stock band.
+    assert (cfg.bitforge_vr_high_c - cfg.bitforge_vr_low_c) == (
+        cfg.vr_high_c - cfg.vr_low_c
+    )
+    # The band must stay under the co-tuner's VR hard cutoff.
+    assert cfg.bitforge_vr_high_c < cfg.vr_cutoff_c
+    assert cfg.temp_band("chip", "bitforge") == (cfg.chip_high_c, cfg.chip_low_c)
+    assert cfg.temp_band("vr", "bitaxe") == (cfg.vr_high_c, cfg.vr_low_c)
+    assert cfg.temp_band("vr", None) == (cfg.vr_high_c, cfg.vr_low_c)
+
+
+def test_vin_band_scales_for_12v_boards():
+    """The configured Vin window is 5 V-shaped (4800-5500). A 12 V board
+    (NerdQAxe, BitForge Nano) reports ~12000 mV and must get the window
+    rescaled by 12/5 instead of hard-tripping; 5 V boards and unknown
+    readings pass through untouched."""
+    from backend.guardian import vin_band
+
+    assert vin_band(5050.0, 4800.0, 5500.0) == (4800.0, 5500.0)
+    assert vin_band(None, 4800.0, 5500.0) == (4800.0, 5500.0)
+    lo, hi = vin_band(12015.0, 4800.0, 5500.0)
+    assert (lo, hi) == (11520.0, 13200.0)
+    assert lo < 12015.0 < hi
+    # A genuinely sagging 12 V PSU still trips the scaled window.
+    assert not (lo < 11300.0)
+
+
 # ---- hashrate validity brake (theoretical) ---------------------------------
 
 def test_invalid_steps_down_even_when_cool():

@@ -70,9 +70,11 @@ from .miners.base import MinerSample
 
 log = logging.getLogger("minerwatch.guardian")
 
-# Families this governor knows how to drive. Both speak the AxeOS REST API
+# Families this governor knows how to drive. All speak the AxeOS REST API
 # and expose ``vrTemp``; the VR temperature is the primary control signal.
-GUARDIAN_FAMILIES = ("bitaxe", "nerdoctaxe")
+# bitforge (forge-os) lacks ``expectedHashrate``, so its validity test
+# relies on the smallCoreCount × asicCount fallback.
+GUARDIAN_FAMILIES = ("bitaxe", "nerdoctaxe", "bitforge")
 
 
 # ============================================================================
@@ -171,6 +173,25 @@ def decide_frequency(
         # down-step, or at ceiling on an up-step).
         return current_freq, "hold (at limit)"
     return target, reason
+
+
+def vin_band(
+    vin_mv: float | None, vin_min_mv: float, vin_max_mv: float
+) -> tuple[float, float]:
+    """Scale the configured Vin window to the board's input rail.
+
+    The configured ``vin_min/max_mv`` describe a 5 V-input board (the
+    original Bitaxe assumption: 4800–5500). 12 V-input boards — NerdQAxe,
+    BitForge Nano — report ``voltage`` ≈ 12000 mV, which sits permanently
+    above the 5 V window and would hard-trip the co-tuner on every tick.
+    A reading above 8000 mV can only be a 12 V rail (no supported board
+    runs between 5.5 V and 8 V), so the window scales by 12/5 — 11520–13200
+    with the defaults — preserving the same relative sag/overshoot margins
+    (a 12 V PSU sagging below ~11.5 V trips, exactly like 5 V below 4.8).
+    """
+    if vin_mv is not None and vin_mv > 8000:
+        return vin_min_mv * 12 / 5, vin_max_mv * 12 / 5
+    return vin_min_mv, vin_max_mv
 
 
 def decide_point(
@@ -545,10 +566,14 @@ class GuardianController:
         floor = int(floor) if floor else int(gcfg.frequency_floor_mhz)
 
         # Resolve the temperature thresholds. Defaults come from GuardianCfg per
-        # source; a per-miner ``guardian_max_temp_c`` overrides only the HIGH
-        # point, and the recovery (LOW) point is derived by subtracting the same
-        # hysteresis deadband the defaults carry — so the user sets one number.
-        default_high, default_low = gcfg.temp_band(source)
+        # source AND family (the BitForge's TPS546 needs a hotter VR band than
+        # the Bitaxe's regulator); a per-miner ``guardian_max_temp_c`` overrides
+        # only the HIGH point, and the recovery (LOW) point is derived by
+        # subtracting the same hysteresis deadband the defaults carry — so the
+        # user sets one number.
+        default_high, default_low = gcfg.temp_band(
+            source, (miner.get("family") or "").lower()
+        )
         max_temp = miner.get("guardian_max_temp_c")
         if max_temp:
             temp_high = float(max_temp)
@@ -623,6 +648,13 @@ class GuardianController:
                 power_cut = float(sample.max_power_w) if sample.max_power_w else (
                     float(getattr(gcfg, "power_cutoff_w", 0) or 0) or None
                 )
+                # 12 V boards need the 5 V-shaped Vin window rescaled —
+                # see vin_band().
+                vin_lo, vin_hi = vin_band(
+                    sample.input_voltage_mv,
+                    float(gcfg.vin_min_mv),
+                    float(gcfg.vin_max_mv),
+                )
                 tf, tv, vreason = decide_point(
                     current_freq=int(current_freq),
                     current_volt=cur_v,
@@ -643,8 +675,8 @@ class GuardianController:
                     power_w=sample.power_w,
                     power_cutoff_w=power_cut,
                     vin_mv=sample.input_voltage_mv,
-                    vin_min_mv=float(gcfg.vin_min_mv),
-                    vin_max_mv=float(gcfg.vin_max_mv),
+                    vin_min_mv=vin_lo,
+                    vin_max_mv=vin_hi,
                     step_down_mhz=gcfg.step_down_vr_mhz,
                     step_up_mhz=gcfg.step_up_mhz,
                     step_volt_mv=int(gcfg.v2_voltage_step_mv),

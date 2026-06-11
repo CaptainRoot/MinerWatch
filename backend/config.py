@@ -174,6 +174,17 @@ class GuardianCfg:
     # the high point.
     chip_high_c: float = 60.0         # above → step frequency down
     chip_low_c: float = 57.0          # below → step frequency up (recover)
+    # BitForge (forge-os) VR band. The 67–70 °C default above is tuned for
+    # the Bitaxe's 5 V-input regulator; the BitForge Nano's TPS546A24
+    # (12 V input) sits at ~71 °C at STOCK settings and its own firmware
+    # only throttles the VR at 105 °C (TPS546_THROTTLE_TEMP; abs max
+    # 145 °C) — governing it to 70 °C would pin the board below stock
+    # frequency forever. 77–80 °C keeps the same 3 °C deadband, stays
+    # under the co-tuner's 85 °C vr_cutoff_c hard net, and leaves 25 °C
+    # of margin to the firmware's own throttle. Chip thresholds are NOT
+    # forked: the BM1370 is the same ASIC as the Bitaxe Gamma's.
+    bitforge_vr_high_c: float = 80.0  # above → step frequency down
+    bitforge_vr_low_c: float = 77.0   # below → step frequency up (recover)
     # Rejected-share % over the interval = Δrejected / Δ(accepted+rejected)
     # × 100. This replaces the old errorCount/total HW% which was bogus on
     # AxeOS (its hashrateMonitor `total` is the hashrate, not a work counter,
@@ -257,7 +268,9 @@ class GuardianCfg:
     vin_min_mv: float = 4800.0
     vin_max_mv: float = 5500.0
 
-    def temp_band(self, source: str | None) -> tuple[float, float]:
+    def temp_band(
+        self, source: str | None, family: str | None = None
+    ) -> tuple[float, float]:
         """``(high_c, low_c)`` default thresholds for a temperature source.
 
         ``source`` is the per-miner ``guardian_temp_source`` ("vr" | "chip").
@@ -266,9 +279,16 @@ class GuardianCfg:
         existed — VR-governed. The gap between the two is the hysteresis
         deadband, reused to derive the recovery point when a miner overrides
         only the high threshold via ``guardian_max_temp_c``.
+
+        ``family`` selects per-board VR defaults where the Bitaxe-tuned band
+        would mis-govern: the BitForge's TPS546 runs ~71 °C at stock, so it
+        gets the ``bitforge_vr_*`` band. The chip band is family-agnostic
+        (same ASICs across the AxeOS families).
         """
         if str(source or "").lower() == "chip":
             return self.chip_high_c, self.chip_low_c
+        if str(family or "").lower() == "bitforge":
+            return self.bitforge_vr_high_c, self.bitforge_vr_low_c
         return self.vr_high_c, self.vr_low_c
 
 

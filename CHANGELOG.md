@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-06-11
+
+### Added
+
+- **BitForge Nano support (forge-os).** WantClue's dual-BM1370 board joins
+  as the new `bitforge` family. forge-os is AxeOS-derived, so monitoring,
+  fan/frequency/voltage control, dual pools, donate-hashrate, live shares
+  and the Guardian all work. The driver maps the forge-os dialect onto the
+  standard readouts: per-ASIC `chiptemp1`/`chiptemp2` (hottest governs,
+  the firmware's averaged `temp` feeds the average row), INA260 board
+  current as PSU amps, and the fan duty under every firmware spelling
+  (`fanspeed` on the v1.0 factory firmware, `fanSpeed`/`manualFanSpeed`
+  on v1.5+). Auto-discovery keys on `deviceModel` where `/api/system/asic`
+  exists and falls back to the forge-os-only `chiptemp1` telemetry on
+  v1.0, which lacks the endpoint; 2× BM1370 names the board "BitForge
+  Nano". The Guardian gets a board-appropriate VR band (77–80 °C: the
+  Nano's TPS546 sits ~71 °C at stock and its firmware only throttles the
+  VR at 105 °C, so the Bitaxe-tuned 67–70 °C band would have pinned it
+  below stock), and the hashrate validity check uses the smallCoreCount ×
+  asicCount fallback since forge-os reports no `expectedHashrate`.
+  Verified against a real Nano running the v1.0 factory firmware.
+
+### Fixed
+
+- **Voltage co-tuner hard-tripped on 12 V boards.** The Vin sag/overshoot
+  guard compared every input rail against the 5 V window (4800–5500 mV),
+  so 12 V boards (NerdQAxe, BitForge Nano) reading ~12 000 mV hit the
+  cutoff on every tick and were pushed to the frequency floor. The window
+  now scales to the rail (11 520–13 200 mV on 12 V) with the same relative
+  margins.
+- **Umbrel widgets never rendered.** umbreld parses the `refresh` interval
+  from the widget data response (the manifest value is never merged in),
+  so payloads without it made `widget.data` throw and both widgets sat on
+  their loading skeleton forever. The endpoints now include `refresh` in
+  every payload.
+- **Docker healthcheck failed whenever authentication was enabled.** The
+  probe calls `/api/health` with no session, got 401 and permanently
+  flagged the container unhealthy. The endpoint is now auth-exempt; it
+  exposes the same status + version the public `/api/version` already does.
+
 ## [1.11.0] — 2026-06-11
 
 ### Added

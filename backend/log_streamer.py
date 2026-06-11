@@ -69,7 +69,12 @@ except Exception:  # noqa: BLE001  pragma: no cover
 # Families that speak the AxeOS REST/WS protocol. `bitaxe` covers both
 # the original Bitaxe and the NerdQAxe (they share the family tag in the
 # DB); `nerdoctaxe` is the multi-ASIC fork, also AxeOS-derived.
-AXEOS_FAMILIES = {"bitaxe", "nerdoctaxe"}
+# `bitforge` (forge-os) exposes the same /api/ws endpoint. Its v1.0
+# factory firmware logs the per-share "diff X of Y" line at INFO like
+# upstream, so live shares work; v1.5/main demoted it to DEBUG, so on
+# that firmware the chart may stay empty — the stream still carries
+# system logs either way.
+AXEOS_FAMILIES = {"bitaxe", "nerdoctaxe", "bitforge"}
 
 # Per-miner ring buffer for the live chart. Retention is primarily
 # TIME-based (RING_BUFFER_SECONDS): a pure count cap spans far less

@@ -48,6 +48,13 @@ BLOCK_CELEBRATION_SECONDS = 7 * 24 * 3600
 # umbrelOS's list widget renders items.slice(0, 5).
 LIST_MAX_ROWS = 5
 
+# Poll interval for both widgets. umbreld needs ``refresh`` inside the
+# *data response*: widgets/routes.ts runs ``ms(widgetData.refresh)`` on
+# whatever the endpoint returns (the manifest ``refresh`` is never merged
+# in), and ``ms(undefined)`` throws — leaving the widget stuck on its
+# skeleton. Keep in sync with the manifest in umbrel/umbrel-app.yml.
+WIDGET_REFRESH = "5s"
+
 # SI suffixes, largest first — mirrors SI_UNITS in lib/format.ts.
 _SI_UNITS = (
     (1e24, "Y"),
@@ -163,6 +170,7 @@ def build_fleet_widget(
 
     return {
         "type": "four-stats",
+        "refresh": WIDGET_REFRESH,
         "link": "",
         "items": [
             {"title": "Hashrate", "text": hr_text, "subtext": hr_unit},
@@ -184,6 +192,7 @@ def _fleet_celebration(find: Mapping[str, Any]) -> dict[str, Any]:
     ts = find.get("ts")
     return {
         "type": "four-stats",
+        "refresh": WIDGET_REFRESH,
         "link": "",
         "items": [
             {
@@ -251,6 +260,7 @@ def build_miners_widget(
 
     return {
         "type": "list",
+        "refresh": WIDGET_REFRESH,
         "link": "",
         "noItemsText": "No miners discovered yet",
         "items": rows,

@@ -4,10 +4,10 @@
 
 **A local-first dashboard for home Bitcoin miners.**
 
-Monitor and control Bitaxe, NerdQAxe / NerdOCTAXE, Canaan Avalon Nano 3s
-and Braiins BMM miners — plus read-only monitoring of LuxOS Antminer /
-Whatsminer rigs — on your home network, all from your browser. No cloud,
-no telemetry.
+Monitor and control Bitaxe, NerdQAxe / NerdOCTAXE, BitForge Nano, Canaan
+Avalon Nano 3s and Braiins BMM miners — plus read-only monitoring of
+LuxOS Antminer / Whatsminer rigs — on your home network, all from your
+browser. No cloud, no telemetry.
 
 [![CI](https://github.com/imlenti/MinerWatch/actions/workflows/ci.yml/badge.svg)](https://github.com/imlenti/MinerWatch/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
@@ -177,6 +177,7 @@ comfortable opening a terminal but not necessarily developers.
 |-------------------|--------------------------------------------|-----------------------------------|------------|
 | Bitaxe            | Gamma 601 / 602, Supra, Ultra, Max         | HTTP REST :80                     | Full       |
 | NerdQAxe / Octaxe | NerdQAxe+, NerdQAxe++, NerdOCTAXE-Plus/Gamma | HTTP REST :80 (Bitaxe-compatible) | Full       |
+| BitForge          | BitForge Nano (forge-os firmware)          | HTTP REST :80 (Bitaxe-compatible) | Full       |
 | Canaan Avalon     | Nano 3s                                     | TCP cgminer-text :4028           | Full       |
 | Braiins           | BMM 101 (BOSminer firmware)                | TCP cgminer-JSON :4028           | Full       |
 | LuxOS (Luxor)     | Bitmain Antminer S19 / S21, MicroBT Whatsminer | TCP cgminer-JSON :4028        | Monitor only |
@@ -185,6 +186,12 @@ The **NerdQAxe and NerdOCTAXE** lines are one driver family internally
 (`nerdoctaxe`): both are multi-chip AxeOS boards that share the Bitaxe
 REST surface, so MinerWatch auto-detects either as the same family and
 adds the dual-fan / dual-pool / PSU-current readouts on top.
+
+The **BitForge** family (WantClue's dual-BM1370 BitForge Nano, forge-os
+firmware) is also AxeOS-derived and is auto-detected via its
+`deviceModel`. MinerWatch maps the forge-os field dialect (`fanSpeed`,
+per-ASIC `chiptemp1`/`chiptemp2`, INA260 board current) onto the
+standard readouts and uses the forge-os spelling for fan control.
 
 **LuxOS is monitoring-only for now.** MinerWatch reads hashrate, temps,
 fans, power and pools from LuxOS-flashed Antminer/Whatsminer rigs, but

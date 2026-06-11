@@ -148,6 +148,11 @@ def public_paths(path: str) -> bool:
         # and falls through to require_auth like every other write.
         "/api/version",
         "/api/update/check",
+        # /api/health backs the Docker healthcheck: compose probes it
+        # with a bare urlopen and no session, so with auth enabled the
+        # probe got 401 and the container sat permanently unhealthy.
+        # It exposes the same status + version /api/version already does.
+        "/api/health",
         # umbrelOS desktop widgets: umbreld polls these without a
         # session cookie, so they must stay public. Read-only GETs
         # exposing only coarse fleet numbers (hashrate, online count,

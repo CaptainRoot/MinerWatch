@@ -3,7 +3,8 @@
 
 Every driver inherits from :class:`base.MinerDriver` and implements
 at least ``poll()``. The registry maps the family name (``bitaxe``,
-``nerdoctaxe``, ``canaan``, ``braiins``, ``luxos``) to the driver class.
+``nerdoctaxe``, ``bitforge``, ``canaan``, ``braiins``, ``luxos``) to the
+driver class.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from typing import Type
 from .base import MinerDriver, MinerSample
 from .bitaxe import BitaxeDriver
 from .nerdoctaxe import NerdOctaxeDriver
+from .bitforge import BitForgeDriver
 from .canaan import CanaanDriver
 from .braiins import BraiinsDriver
 from .luxos import LuxosDriver
@@ -21,6 +23,9 @@ DRIVERS: dict[str, Type[MinerDriver]] = {
     # NerdOctaxe shares the Bitaxe REST surface but adds dual-fan,
     # dual-pool and PSU-current readings — see nerdoctaxe.py.
     "nerdoctaxe": NerdOctaxeDriver,
+    # BitForge (Nano): forge-os firmware, AxeOS-derived with a few
+    # renamed fields (fanSpeed, chiptemp1/2) — see bitforge.py.
+    "bitforge": BitForgeDriver,
     "canaan": CanaanDriver,
     "braiins": BraiinsDriver,
     "luxos": LuxosDriver,
@@ -48,6 +53,7 @@ __all__ = [
     "MinerSample",
     "BitaxeDriver",
     "NerdOctaxeDriver",
+    "BitForgeDriver",
     "CanaanDriver",
     "BraiinsDriver",
     "LuxosDriver",

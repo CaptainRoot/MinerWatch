@@ -45,6 +45,9 @@ TODO.md
 RELEASE.md
 CLAUDE.md
 
+# Script di manutenzione del maintainer (lancio manuale, non pubblico)
+scripts/prune-ghcr.sh
+
 # Vecchio progetto separato (non parte di MinerWatch)
 canaan /
 canaan/

@@ -20,7 +20,7 @@ import type { MinerListEntry } from '@/lib/types';
 
 // AxeOS-derived firmwares are the only ones that expose a per-share log
 // WebSocket (see backend/log_streamer.py). cgminer families are skipped.
-const AXEOS_FAMILIES = new Set(['bitaxe', 'nerdoctaxe']);
+const AXEOS_FAMILIES = new Set(['bitaxe', 'nerdoctaxe', 'bitforge']);
 
 const RANGES: Array<{ label: string; seconds: number }> = [
   { label: '1m', seconds: 60 },
