@@ -148,6 +148,13 @@ def public_paths(path: str) -> bool:
         # and falls through to require_auth like every other write.
         "/api/version",
         "/api/update/check",
+        # umbrelOS desktop widgets: umbreld polls these without a
+        # session cookie, so they must stay public. Read-only GETs
+        # exposing only coarse fleet numbers (hashrate, online count,
+        # best share, temps) — no settings, no control surface. Anyone
+        # on the LAN can already reach the login page; this adds the
+        # same numbers the Umbrel desktop shows.
+        "/api/widgets/",
         "/sw.js",
         "/assets/",
         "/static/",

@@ -205,6 +205,13 @@ CREATE TABLE IF NOT EXISTS block_finds (
     share_difficulty    REAL NOT NULL,
     network_difficulty  REAL NOT NULL,
     block_height        INTEGER,
+    -- Dashboard-only visibility flag. NOTE: no semicolons in these
+    -- comments — the schema runner splits statements on them. Hidden
+    -- trophies stay in the DB and keep feeding the Umbrel widget,
+    -- Telegram and the poller's anti-duplication guard (a DELETE would
+    -- let the same share re-insert itself on the next poll). They only
+    -- leave the dashboard card. Restore lives in Settings.
+    hidden              INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (miner_id) REFERENCES miners(id) ON DELETE SET NULL
 );
 
@@ -386,6 +393,8 @@ def _init_db_sync() -> None:
             "ALTER TABLE miners ADD COLUMN guardian_temp_source TEXT",
             "ALTER TABLE miners ADD COLUMN guardian_max_temp_c REAL",
             "ALTER TABLE miners ADD COLUMN guardian_voltage_enabled INTEGER DEFAULT 0",
+            # Per-trophy dashboard visibility (see block_finds DDL).
+            "ALTER TABLE block_finds ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 conn.execute(column_def)
@@ -1489,21 +1498,43 @@ async def insert_block_find(
         return cur.lastrowid or 0
 
 
-async def list_block_finds(limit: int = 50) -> list[dict[str, Any]]:
-    """Return the most recent block-found events, newest first."""
+async def list_block_finds(
+    limit: int = 50,
+    include_hidden: bool = False,
+) -> list[dict[str, Any]]:
+    """Return the most recent block-found events, newest first.
+
+    ``include_hidden=False`` (the default) is the dashboard view: rows
+    the user dismissed with the per-trophy X are filtered out. Pass
+    ``True`` for every other consumer — the Umbrel widget celebration,
+    the Settings restore list — because hiding is a dashboard-only
+    cosmetic, not a deletion.
+    """
+    sql = """
+        SELECT id, miner_id, miner_name, ts, share_difficulty,
+               network_difficulty, block_height, hidden
+        FROM block_finds
+    """
+    if not include_hidden:
+        sql += " WHERE hidden = 0"
+    sql += " ORDER BY ts DESC LIMIT ?"
     async with connect() as conn:
-        async with conn.execute(
-            """
-            SELECT id, miner_id, miner_name, ts, share_difficulty,
-                   network_difficulty, block_height
-            FROM block_finds
-            ORDER BY ts DESC
-            LIMIT ?
-            """,
-            (int(limit),),
-        ) as cur:
+        async with conn.execute(sql, (int(limit),)) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+async def set_block_find_hidden(find_id: int, hidden: bool) -> bool:
+    """Flip the dashboard visibility of one trophy. Returns False when
+    the id doesn't exist. Deliberately single-row: there is no
+    bulk-hide, by design."""
+    async with connect() as conn:
+        cur = await conn.execute(
+            "UPDATE block_finds SET hidden = ? WHERE id = ?",
+            (1 if hidden else 0, int(find_id)),
+        )
+        await conn.commit()
+        return cur.rowcount > 0
 
 
 async def last_block_find_share_value(miner_id: int) -> float | None:

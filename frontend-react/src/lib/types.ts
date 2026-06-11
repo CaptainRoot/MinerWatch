@@ -396,12 +396,17 @@ export interface PredictionResponse {
 }
 
 export interface BlockFind {
+  id: number;
   miner_id: number;
   miner_name: string;
   ts: number;
   share_difficulty: number;
   network_difficulty: number;
   block_height: number | null;
+  // Dashboard-only visibility: 1 = dismissed via the per-trophy X.
+  // Hidden trophies still exist everywhere else (DB, Umbrel widget,
+  // stats) and can be restored from Settings.
+  hidden: 0 | 1;
 }
 
 export interface BlockFindsResponse {
@@ -821,4 +826,16 @@ export interface NotableSharesResponse {
   miner_id: number;
   supported: boolean;
   entries: NotableShare[];
+}
+
+// Once-per-version "What's new" dialog: bold changelog leads for the
+// running version, extracted server-side (backend/whatsnew.py).
+export interface WhatsNewHighlight {
+  title: string;
+  body: string;
+}
+
+export interface WhatsNewResponse {
+  version: string;
+  highlights: WhatsNewHighlight[];
 }

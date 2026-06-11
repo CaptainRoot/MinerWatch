@@ -56,6 +56,11 @@ alerts:
   # Incoming amounts at or below this many sats are flagged as a
   # potential dust attack (still notified, with a warning).
   wallet_watch_dust_sats: 546
+  # Append a short "star MinerWatch on GitHub" footer to milestone
+  # Telegram messages (new all-time best share — rate-limited — and
+  # block found). Operational alerts are never touched. Set to false
+  # to keep milestone messages bare.
+  telegram_star_footer: true
 
 auth:
   # If true, the API and UI require the bearer token (settings.password).

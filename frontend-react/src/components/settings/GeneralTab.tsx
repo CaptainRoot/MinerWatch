@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { HiddenTrophiesCard } from './HiddenTrophiesCard';
 import type { SettingsFormState } from './SettingsForm';
 
 interface Props {
@@ -75,6 +76,7 @@ export function GeneralTab({ form, setForm }: Props) {
           />
         </CardContent>
       </Card>
+      <HiddenTrophiesCard />
     </div>
   );
 }

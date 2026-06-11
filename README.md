@@ -16,14 +16,21 @@ no telemetry.
 [![No Warranty](https://img.shields.io/badge/warranty-none-red.svg)](#disclaimer)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-⚡ If MinerWatch is useful to your home rig, donations are welcome:
-
-- **Bitcoin (on-chain):** `bc1qexhamvrpclpr2skyyw3u8edm8kznnvt6zjudxu`
-- **Lightning:** `forgedfibre517@walletofsatoshi.com`
+**MinerWatch is free. It costs one star ⭐** — [star it](https://github.com/imlenti/MinerWatch) to help other home miners find it.
 
 ![MinerWatch dashboard](docs/screenshots/dashboard.png)
 
 </div>
+
+## Donations
+
+⚡ If MinerWatch is useful to your home rig, donations are welcome:
+
+- **Bitcoin (on-chain):** `bc1qexhamvrpclpr2skyyw3u8edm8kznnvt6zjudxu`
+- **Lightning:** `forgedfibre517@walletofsatoshi.com`
+- **Hashrate:** point your miner at the project for a few hours from the
+  in-app **Donate** page — your miner does the donating, and it switches
+  back to your pool automatically when the timer runs out.
 
 ## Screenshots
 

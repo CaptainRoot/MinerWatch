@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/useTheme';
 import { useUpdateCheck } from '@/api/hooks';
 import { SecurityBanner } from '@/components/SecurityBanner';
+import { WhatsNewDialog } from '@/components/WhatsNewDialog';
 
 // MinerWatch's persistent shell:
 //   - on >= md (≥ 768 px) a 240 px sidebar on the left with the four
@@ -357,6 +358,7 @@ export function AppShell() {
 
       <main className="flex-1 min-w-0 px-4 pb-6 pt-20 md:px-8 md:py-8 md:pt-8">
         <SecurityBanner />
+        <WhatsNewDialog />
         <Outlet />
       </main>
     </div>

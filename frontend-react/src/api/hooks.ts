@@ -30,6 +30,7 @@ import type {
   UpdateCheckResponse,
   UpdateInstallResponse,
   VersionResponse,
+  WhatsNewResponse,
 } from '@/lib/types';
 
 // React Query hooks wrapping the /api endpoints MinerWatch exposes.
@@ -142,12 +143,44 @@ export function useFleetPrediction(coin: PredictionCoin = 'auto') {
   });
 }
 
-export function useBlockFinds() {
+// Once-per-version "What's new" content. Static per release, so it's
+// cached hard; the dialog decides client-side whether to show it.
+export function useWhatsNew() {
   return useQuery({
-    queryKey: ['block-finds'],
+    queryKey: ['whatsnew'],
+    queryFn: ({ signal }) => api<WhatsNewResponse>('/api/whatsnew', { signal }),
+    staleTime: Infinity,
+  });
+}
+
+// `includeHidden` is the Settings view (lists dismissed trophies for
+// restore); the dashboard keeps the default and never sees hidden rows.
+export function useBlockFinds(includeHidden = false) {
+  return useQuery({
+    queryKey: ['block-finds', includeHidden],
     queryFn: ({ signal }) =>
-      api<BlockFindsResponse>('/api/fleet/block_finds', { signal }),
+      api<BlockFindsResponse>(
+        `/api/fleet/block_finds${includeHidden ? '?include_hidden=true' : ''}`,
+        { signal },
+      ),
     refetchInterval: 30_000, // block finds are rare, no need to hammer
+  });
+}
+
+// One trophy per call, by design: there is no bulk-hide. Invalidates
+// every ['block-finds', *] variant so dashboard and Settings stay in
+// sync after a hide/restore.
+export function useSetBlockFindHidden() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, hidden }: { id: number; hidden: boolean }) =>
+      api<{ ok: boolean; id: number; hidden: boolean }>(
+        `/api/fleet/block_finds/${id}/${hidden ? 'hide' : 'unhide'}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['block-finds'] });
+    },
   });
 }
 
@@ -448,12 +481,18 @@ export function useDonationInfo() {
   });
 }
 
-export function useDonations() {
+// `enabled` lets occasional consumers (e.g. the StarAskBanner, which
+// only needs to know whether a donation exists while its donate ask is
+// pending) mount the hook without adding a permanent 10s poll to pages
+// that don't show the table. Defaults to true, so existing call sites
+// are unaffected.
+export function useDonations(enabled = true) {
   return useQuery({
     queryKey: ['donations'],
     queryFn: ({ signal }) =>
       api<DonationListResponse>('/api/donations', { signal }),
     refetchInterval: 10_000,
+    enabled,
   });
 }
 

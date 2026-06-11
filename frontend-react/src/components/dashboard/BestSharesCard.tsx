@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Trophy } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { StarAskBanner } from '@/components/dashboard/StarAskBanner';
 import { fmtDifficulty, fmtRelative } from '@/lib/format';
 import { useFleetBest, useMiners } from '@/api/hooks';
 
@@ -76,6 +77,7 @@ export function BestSharesCard() {
             }
           />
         </div>
+        <StarAskBanner />
       </CardContent>
     </Card>
   );

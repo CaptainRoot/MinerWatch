@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import time
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
@@ -26,6 +27,8 @@ from pydantic import BaseModel, Field
 from . import db
 from . import coin_difficulty
 from . import system_info
+from . import umbrel_widgets
+from . import whatsnew
 from .alerts import ensure_vapid_keys, public_key_b64
 from .auth import (
     clear_login_failures,
@@ -368,6 +371,17 @@ async def api_version() -> dict:
     }
 
 
+@app.get("/api/whatsnew")
+async def api_whatsnew() -> dict:
+    """Highlights for the once-per-version "What's new" dialog.
+
+    Bold changelog leads for the running version (see
+    backend/whatsnew.py); the client tracks which version it last
+    showed, so this endpoint is just static content per release.
+    """
+    return whatsnew.get_whatsnew()
+
+
 @app.get("/api/update/check")
 async def api_update_check(force: bool = False) -> dict:
     """Hit GitHub Releases and return the diff against the local VERSION.
@@ -621,16 +635,48 @@ async def api_fleet_hashrate_history(
 
 
 @app.get("/api/fleet/block_finds")
-async def api_fleet_block_finds(limit: int = 50) -> dict:
+async def api_fleet_block_finds(limit: int = 50, include_hidden: bool = False) -> dict:
     """Return the list of block-found events for the whole fleet.
 
     Used by the home page to render the celebratory "Blocks found"
     card. Returns the most recent ``limit`` events newest-first; the
     UI typically shows them all (they're so rare that the list is
     short in any reasonable timeframe).
+
+    The dashboard calls this with the default ``include_hidden=False``
+    so per-trophy dismissals (the X on each row) stick; the Settings
+    page passes ``True`` to list hidden trophies for restore.
     """
-    rows = await db.list_block_finds(limit=max(1, min(int(limit), 500)))
+    rows = await db.list_block_finds(
+        limit=max(1, min(int(limit), 500)),
+        include_hidden=include_hidden,
+    )
     return {"block_finds": rows}
+
+
+@app.post("/api/fleet/block_finds/{find_id}/hide")
+async def api_hide_block_find(find_id: int) -> dict:
+    """Hide one trophy from the dashboard card.
+
+    Strictly one row per call — there is intentionally no bulk-hide
+    endpoint. The row stays in the DB: it keeps feeding the Umbrel
+    widget, the stats and the poller's anti-duplication guard (a real
+    DELETE would let the same share re-fire on the next poll while the
+    miner still reports it as its session best).
+    """
+    ok = await db.set_block_find_hidden(find_id, hidden=True)
+    if not ok:
+        raise HTTPException(status_code=404, detail="block find not found")
+    return {"ok": True, "id": find_id, "hidden": True}
+
+
+@app.post("/api/fleet/block_finds/{find_id}/unhide")
+async def api_unhide_block_find(find_id: int) -> dict:
+    """Restore a hidden trophy to the dashboard card (Settings page)."""
+    ok = await db.set_block_find_hidden(find_id, hidden=False)
+    if not ok:
+        raise HTTPException(status_code=404, detail="block find not found")
+    return {"ok": True, "id": find_id, "hidden": False}
 
 
 @app.get("/api/fleet/best_difficulty")
@@ -689,6 +735,60 @@ async def api_fleet_ambient_temp() -> dict:
         "available": snap.available,
         "has_data": snap.has_data,
     }
+
+
+# ---------- umbrelOS desktop widgets ----------
+#
+# JSON consumed by umbreld to render MinerWatch's desktop widgets (see
+# backend/umbrel_widgets.py for the full design notes and the manifest
+# `widgets:` section in umbrel/umbrel-app.yml). Both endpoints are
+# auth-exempt via auth.public_paths because umbreld fetches them without
+# a session; they expose only coarse fleet numbers.
+
+
+@app.get("/api/widgets/fleet")
+async def api_widget_fleet() -> dict:
+    """`four-stats` widget: hashrate / online / best share / max temp.
+
+    Switches to the block-find celebration layout for the first
+    BLOCK_CELEBRATION_SECONDS after the most recent find.
+    """
+    miners = await db.list_miners(only_enabled=True)
+    best = await db.get_fleet_best_records()
+    alltime = best.get("alltime") or {}
+    finds = await db.list_block_finds(limit=1, include_hidden=True)
+    return umbrel_widgets.build_fleet_widget(
+        miners=miners,
+        samples=poller.last_results,
+        best_alltime=alltime.get("value"),
+        latest_find=finds[0] if finds else None,
+        now=time.time(),
+    )
+
+
+@app.get("/api/widgets/miners")
+async def api_widget_miners() -> dict:
+    """`list` widget: one row per enabled miner (name / hashrate+temp).
+
+    `last_seen` (latest stored metric) is fetched only for miners that
+    are currently offline — it's what turns into the "Offline · 2 h"
+    row, and skipping it for online miners keeps the endpoint at zero
+    DB hits in the happy path beyond the miner list itself.
+    """
+    miners = await db.list_miners(only_enabled=True)
+    samples = poller.last_results
+    last_seen: dict[int, float | None] = {}
+    for m in miners:
+        sample = samples.get(m["id"])
+        if not (sample and sample.online):
+            latest = await db.latest_metric(m["id"])
+            last_seen[m["id"]] = latest["ts"] if latest else None
+    return umbrel_widgets.build_miners_widget(
+        miners=miners,
+        samples=samples,
+        last_seen=last_seen,
+        now=time.time(),
+    )
 
 
 # ---------- Live per-share streaming (AxeOS only) ----------

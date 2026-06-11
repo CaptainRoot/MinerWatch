@@ -51,6 +51,53 @@ _state: dict[int, dict[str, Any]] = {}
 BEST_SHARE_MIN_GROWTH = 1.001
 BEST_SHARE_COOLDOWN_S = 60
 
+# ---- "Star us" / donations footers on milestone Telegram messages ----
+# Milestone events (new all-time best, block found) are the emotional
+# peaks of solo mining, so they're the only messages that carry a short
+# project-support footer. Delivery is Telegram-only via the existing
+# `telegram_extra` payload field: browser push bodies stay clean.
+# The star footer is rate-limited globally (not per miner — the reader
+# is one human chat, not one chat per miner). In-memory timestamp: a
+# process restart may repeat it once, which is acceptable.
+# The block-found footer always ships: statistically once a lifetime,
+# and the README anchor is a public URL (Telegram can't reach the LAN).
+STAR_FOOTER_COOLDOWN_S = 14 * 24 * 3600
+GITHUB_REPO_URL = "https://github.com/imlenti/MinerWatch"
+DONATIONS_URL = f"{GITHUB_REPO_URL}#donations"
+STAR_FOOTER_TEXT = (
+    "Enjoying MinerWatch? A GitHub star helps it reach more home miners ⭐\n"
+    f"{GITHUB_REPO_URL}"
+)
+DONATION_FOOTER_TEXT = (
+    "MinerWatch runs on donations — if it earned its keep today:\n"
+    f"{DONATIONS_URL}"
+)
+_star_footer_last_ts: int = 0
+
+
+def star_footer_if_due(ts: int) -> str | None:
+    """Return the star footer when allowed, consuming the rate limit.
+
+    Centralised so the cooldown bookkeeping has exactly one owner and
+    the logic stays unit-testable (tests reset the module timestamp).
+    Returns None when the config kill-switch is off or the global
+    cooldown hasn't elapsed.
+    """
+    global _star_footer_last_ts
+    if not get_config().alerts.telegram_star_footer:
+        return None
+    if ts - _star_footer_last_ts < STAR_FOOTER_COOLDOWN_S:
+        return None
+    _star_footer_last_ts = ts
+    return STAR_FOOTER_TEXT
+
+
+def donation_footer() -> str | None:
+    """Footer for block-found messages; gated only by the kill-switch."""
+    if not get_config().alerts.telegram_star_footer:
+        return None
+    return DONATION_FOOTER_TEXT
+
 # py-vapid validates this field with a strict regex: it must be
 # "mailto:<something>@localhost" or "mailto:<something>@<domain.tld>".
 # "@local" without a dot fails with "Missing 'sub' from claims".
@@ -421,12 +468,16 @@ async def notify_block_found(
         f"Congratulations!"
     )
     await db.insert_alert(miner_id, "info", "block_found", body)
-    await send_notification({
+    payload: dict[str, Any] = {
         "title": title,
         "body": body,
         "miner_id": miner_id,
         "code": "block_found",
-    })
+    }
+    extra = donation_footer()
+    if extra:
+        payload["telegram_extra"] = extra
+    await send_notification(payload)
     log.info("block_found: miner=%s id=%s share=%.2f network=%.2f db_row=%s",
              miner_name, miner_id, share_difficulty, network_difficulty, row_id)
     return True
@@ -636,12 +687,16 @@ async def notify_new_alltime_best(
     title = "🎯 New best share"
     body = f"{miner_name}: {pretty_new} (was {pretty_prev})"
     await db.insert_alert(miner_id, "info", "best_share_alltime", body)
-    await send_notification({
+    payload: dict[str, Any] = {
         "title": title,
         "body": body,
         "miner_id": miner_id,
         "code": "best_share_alltime",
-    })
+    }
+    extra = star_footer_if_due(ts)
+    if extra:
+        payload["telegram_extra"] = extra
+    await send_notification(payload)
 
     state["best_share_alltime_last_push_ts"] = ts
     return True

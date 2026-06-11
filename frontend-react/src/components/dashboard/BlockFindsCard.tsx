@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
-import { PartyPopper } from 'lucide-react';
+import { Heart, PartyPopper, X } from 'lucide-react';
 
 import { fmtDifficulty, fmtRelative } from '@/lib/format';
-import { useBlockFinds } from '@/api/hooks';
+import { useBlockFinds, useSetBlockFindHidden } from '@/api/hooks';
 
 /**
  * Permanent trophy card for solo-mined blocks. Statistically rare for
@@ -15,6 +15,7 @@ import { useBlockFinds } from '@/api/hooks';
  */
 export function BlockFindsCard() {
   const { data } = useBlockFinds();
+  const setHidden = useSetBlockFindHidden();
   const finds = data?.block_finds ?? [];
   if (!finds.length) return null;
 
@@ -38,7 +39,7 @@ export function BlockFindsCard() {
       <ul className="space-y-2">
         {finds.map((f) => (
           <li
-            key={`${f.miner_id}-${f.ts}`}
+            key={f.id}
             className="flex items-baseline justify-between gap-3 rounded-md border border-yellow-500/20 bg-card/60 px-3 py-2 text-sm"
           >
             <div>
@@ -52,10 +53,36 @@ export function BlockFindsCard() {
                 <span className="ml-2 text-muted-foreground">· block #{f.block_height}</span>
               )}
             </div>
-            <span className="text-xs text-muted-foreground">{fmtRelative(f.ts)}</span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="text-xs text-muted-foreground">{fmtRelative(f.ts)}</span>
+              {/* One trophy per click, on purpose: no hide-all. Restore lives in Settings. */}
+              <button
+                type="button"
+                aria-label="Hide this trophy from the dashboard"
+                title="Hide this trophy (restore from Settings)"
+                onClick={() => setHidden.mutate({ id: f.id, hidden: true })}
+                disabled={setHidden.isPending}
+                className="text-muted-foreground/50 transition-colors hover:text-foreground disabled:opacity-50"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
           </li>
         ))}
       </ul>
+      <footer className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-yellow-500/20 pt-2.5">
+        <span className="text-xs leading-snug text-yellow-200/60">
+          Found with MinerWatch — free and open source. If this dashboard earned its keep, you
+          can tip its development.
+        </span>
+        <Link
+          to="/donations"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-yellow-500/40 px-3 py-1 text-xs text-yellow-300 transition-colors hover:bg-yellow-500/10"
+        >
+          <Heart className="h-3.5 w-3.5" />
+          Donate
+        </Link>
+      </footer>
     </div>
   );
 }

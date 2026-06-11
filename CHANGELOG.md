@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-06-11
+
+### Added
+
+- **Umbrel desktop widgets.** Two widgets for the umbrelOS home: fleet stats
+  (hashrate, miners online, best share, max chip temp) with a celebration
+  layout for 7 days after a block find, and a per-miner list (hashrate +
+  temp, offline miners first, "+N more" aggregate row beyond five). The
+  endpoints are served through Umbrel's app_proxy (the `web` service is
+  host-networked and has no bridge IP for umbreld to resolve) and stay
+  auth-exempt — they expose only coarse fleet numbers.
+- **Tidy up block trophies.** Every trophy row in the dashboard card has an
+  X to hide it — strictly one at a time, there is no hide-all. Hidden
+  trophies stay in the DB and keep feeding the Umbrel widget, the stats and
+  the poller's anti-duplication guard (a deletion would let the same share
+  re-fire); they can be restored from Settings → General.
+- **What's new after updates.** A small dialog appears once per version with
+  the highlights of the release (the bold leads of this very changelog,
+  extracted server-side via `/api/whatsnew`) plus star/donate buttons and a
+  link to the full changelog. A fresh install seeds silently; closing it in
+  any way marks the version as seen.
+- **New ways to support the project.** Dismissible star/donation prompts on
+  new all-time best shares and block finds: star first, donation once the
+  star is settled, and a block find asks immediately — while donors are
+  never asked again (an active donation silences everything). Telegram
+  milestone messages carry a short star/donations footer, rate-limited and
+  removable via `alerts.telegram_star_footer`; the README gained a proper
+  Donations section including hashrate lending.
+
 ## [1.10.11] — 2026-06-10
 
 ### Added

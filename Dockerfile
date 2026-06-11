@@ -120,6 +120,12 @@ COPY --chown=minerwatch:minerwatch config.example.yaml ./config.example.yaml
 # permanently report "update available" and broke the version display.
 COPY --chown=minerwatch:minerwatch VERSION             ./VERSION
 
+# CHANGELOG.md feeds the once-per-version "What's new" dialog
+# (/api/whatsnew extracts the bold bullet leads of the running
+# version). Missing file degrades to a generic highlight, but ship it
+# so updates actually show their news.
+COPY --chown=minerwatch:minerwatch CHANGELOG.md        ./CHANGELOG.md
+
 # React build output from stage 0. backend/config.py points
 # FRONTEND_DIR at /app/frontend-react/dist, so this is where the SPA
 # (and /sw.js, /favicon.svg, /assets/*) is served from.

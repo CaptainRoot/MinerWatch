@@ -87,6 +87,13 @@ class AlertsCfg:
     # String (not int) so it transparently supports group chats whose
     # IDs are negative numbers like "-1001234567890".
     telegram_chat_id: str = ""
+    # Appends a short "star us on GitHub" / "donations welcome" footer to
+    # *milestone* Telegram messages only (new all-time best share, block
+    # found) — never to operational alerts like temperature or offline.
+    # The best-share footer is rate-limited server-side; the block-found
+    # one always ships (it's a once-in-a-lifetime event). Telegram-only:
+    # browser push bodies stay clean (see alerts.telegram_extra).
+    telegram_star_footer: bool = True
     # ---- Watched Bitcoin addresses (see backend/wallet_watch.py). ----
     # Feature switch for the whole watcher loop. With the default empty
     # address list this is a no-op, so True is a safe default: adding an
