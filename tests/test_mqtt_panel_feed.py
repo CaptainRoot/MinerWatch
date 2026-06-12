@@ -104,6 +104,79 @@ def test_panel_feed_btc_price_optional() -> None:
     assert "btc_at" not in feed
 
 
+def _order_fixture() -> tuple[list[dict], dict[int, MinerSample]]:
+    """Four miners as list_miners() would hand them over (name order),
+    including one without a MAC (falls back to the mw<id> identity)."""
+    miners = [
+        {"id": 1, "mac": "AA:00:00:00:00:01", "name": "Alpha"},
+        {"id": 2, "mac": "AA:00:00:00:00:02", "name": "Bravo"},
+        {"id": 3, "mac": "AA:00:00:00:00:03", "name": "Charlie"},
+        {"id": 4, "mac": None, "name": "Delta", "host": "10.0.0.4"},
+    ]
+    samples = {
+        1: _sample(host="10.0.0.1", online=True, hashrate_ths=1.1),
+        3: _sample(host="10.0.0.3", online=True, hashrate_ths=3.3),
+    }
+    return miners, samples
+
+
+def test_panel_feed_applies_custom_order() -> None:
+    miners, samples = _order_fixture()
+    baseline = panel_feed(miners, samples)
+    feed = panel_feed(
+        miners, samples,
+        order=["aa0000000003", "mw4", "aa0000000001", "aa0000000002"],
+    )
+    assert [r["id"] for r in feed["miners"]] == [
+        "aa0000000003", "mw4", "aa0000000001", "aa0000000002",
+    ]
+    # Same rows as the unordered feed — a pure permutation. Every field
+    # of every miner is byte-identical; only the array order changed.
+    by_id = lambda r: r["id"]  # noqa: E731
+    assert sorted(feed["miners"], key=by_id) == sorted(baseline["miners"], key=by_id)
+    assert json.loads(json.dumps(feed)) == feed
+
+
+def test_panel_feed_partial_order_appends_rest_in_api_order() -> None:
+    # Miners absent from the stored order (new ones) follow the ordered
+    # block, keeping the incoming (name-sorted) sequence.
+    miners, samples = _order_fixture()
+    feed = panel_feed(miners, samples, order=["aa0000000002"])
+    assert [r["id"] for r in feed["miners"]] == [
+        "aa0000000002", "aa0000000001", "aa0000000003", "mw4",
+    ]
+
+
+def test_panel_feed_order_skips_stale_ids() -> None:
+    # Ids of removed miners linger in the stored order on purpose (so a
+    # returning miner reclaims its slot); the feed must skip them
+    # without dropping or duplicating anyone.
+    miners, samples = _order_fixture()
+    feed = panel_feed(
+        miners, samples,
+        order=["dead0000beef", "aa0000000002", "aa0000000002", "mw99"],
+    )
+    ids = [r["id"] for r in feed["miners"]]
+    assert ids[0] == "aa0000000002"
+    assert sorted(ids) == sorted(
+        ["aa0000000001", "aa0000000002", "aa0000000003", "mw4"]
+    )
+
+
+def test_panel_feed_no_order_is_byte_identical() -> None:
+    # Backward compatibility: no stored order (None or empty) must
+    # reproduce today's output exactly, BTC/temp blocks included.
+    miners, samples = _order_fixture()
+    kwargs = dict(
+        btc_usd=70996.4, btc_chg=-3.927, btc_at="Tue 2 Jun, 05:52",
+        temp_c=23.4, temp_min_c=17.9, temp_max_c=29.0, temp_active=True,
+    )
+    baseline = panel_feed(miners, samples, **kwargs)
+    assert panel_feed(miners, samples, order=None, **kwargs) == baseline
+    assert panel_feed(miners, samples, order=[], **kwargs) == baseline
+    assert json.dumps(panel_feed(miners, samples, order=None, **kwargs)) == json.dumps(baseline)
+
+
 def test_panel_feed_ambient_temp_optional() -> None:
     miners = [{"id": 1, "mac": "AA:BB:CC:DD:EE:FF", "name": "M"}]
 
@@ -131,5 +204,9 @@ if __name__ == "__main__":
     test_panel_feed_shape_names_and_values()
     test_panel_feed_missing_sample()
     test_panel_feed_btc_price_optional()
+    test_panel_feed_applies_custom_order()
+    test_panel_feed_partial_order_appends_rest_in_api_order()
+    test_panel_feed_order_skips_stale_ids()
+    test_panel_feed_no_order_is_byte_identical()
     test_panel_feed_ambient_temp_optional()
     print("ok — panel_feed tests passed")

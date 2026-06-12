@@ -1,46 +1,77 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+
+import { useMinerOrderQuery, useResetMinerOrder, useSaveMinerOrder } from '@/api/hooks';
 
 // Persisted custom order for the dashboard miner grid.
 //
 // Contract:
-//   - The order is an array of miner IDs, stored in localStorage as
-//     JSON under MW_ORDER_KEY. Any ID not present in the array is
-//     considered "unordered" and appears AFTER the ordered IDs, in
-//     whatever order the API returned (i.e. the default order).
-//   - Newly discovered miners (auto-scan, manual add) therefore land
-//     at the bottom without disturbing the user's curated layout.
-//   - Removed miners get pruned silently the next time the hook sees
-//     a list that no longer contains them — so we never accumulate
-//     orphan IDs.
+//   - The canonical order lives in the BACKEND (`/api/miners/order`,
+//     settings key `_miner_order`): one list shared by every browser
+//     and — crucially — by the `minerwatch/panel` MQTT feed, so the
+//     ESP32 panel draws its cards in the same arrangement as the
+//     dashboard. (It used to live in localStorage, per-browser, which
+//     the panel could never see.)
+//   - Entries are *stable* sanitized-MAC ids, the same scheme the
+//     panel payload and HA discovery use: lowercase MAC without
+//     separators, or `mw<db_id>` when no MAC is known. Keyed by MAC,
+//     a miner that is deleted and later re-added keeps its slot.
+//   - Any miner not present in the order appears AFTER the ordered
+//     ones, in whatever order the API returned (name sort). Newly
+//     discovered miners therefore land at the bottom without
+//     disturbing the curated layout.
+//   - Removed miners are NOT pruned: the server keeps their entry
+//     (and re-inserts it at its old index when other clients save),
+//     so they reclaim their position if they come back.
 //
-// This is kept *local* on purpose: the order is a per-device UI
-// preference, not data the backend cares about. If we later want
-// cross-device sync we can mirror MW_ORDER_KEY into a /api/ui-prefs
-// endpoint without changing the call sites.
+// localStorage now has exactly two jobs:
+//   1. CACHE_KEY mirrors the last server answer so the first paint
+//      after a reload doesn't flash the default order (and keeps the
+//      grid usable if the GET fails).
+//   2. LEGACY_KEY (numeric DB ids, the pre-backend format) feeds a
+//      one-shot migration so nobody loses an arrangement they had
+//      already curated. It is deleted once the migration lands.
 
-const MW_ORDER_KEY = 'mw-miner-order';
+const LEGACY_KEY = 'mw-miner-order';
+const CACHE_KEY = 'mw-miner-order-macs';
 
-function readStored(): number[] {
+/** Mirror of backend ``mqtt.sanitize_mac``: strip everything that is
+ *  not alphanumeric, lowercase; fall back to ``mw<db_id>``. The two
+ *  implementations must agree or the panel and the grid would order
+ *  by different keys. */
+function macIdOf(item: { id: number; mac?: string | null }): string {
+  const cleaned = (item.mac ?? '').replace(/[^0-9a-zA-Z]/g, '').toLowerCase();
+  return cleaned || `mw${item.id}`;
+}
+
+function readLegacy(): number[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(MW_ORDER_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(window.localStorage.getItem(LEGACY_KEY) ?? '[]');
     if (!Array.isArray(parsed)) return [];
-    // Guard against accidentally-stored junk (strings, objects).
     return parsed.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   } catch {
     return [];
   }
 }
 
-function writeStored(order: number[]): void {
+function readCache(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CACHE_KEY) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function writeCache(order: string[]): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(MW_ORDER_KEY, JSON.stringify(order));
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(order));
   } catch {
-    // Private-mode Safari etc. — drop silently; the in-memory state
-    // still applies for the rest of the session.
+    // Private-mode Safari etc. — drop silently; the query cache still
+    // applies for the rest of the session.
   }
 }
 
@@ -51,65 +82,91 @@ export interface UseMinerOrderResult<T> {
   /** Apply a new ordering via the *displayed* index pair. Both
    *  indexes refer to positions in ``ordered``. */
   reorder: (fromIndex: number, toIndex: number) => void;
-  /** Reset to the API order. */
+  /** Reset to the API order (clears the server-side preference). */
   reset: () => void;
 }
 
 /**
- * Hook factory: given the canonical list from the API and an ID
- * accessor, returns the same list sorted by the persisted custom
- * order. The hook self-heals against added/removed miners: new IDs
- * are appended in API order, removed IDs are pruned from the stored
- * preference.
+ * Hook factory: given the canonical list from the API and the items'
+ * stable identity (id + mac), returns the same list sorted by the
+ * shared custom order. Self-heals against added miners (appended in
+ * API order); removed miners are simply skipped, never forgotten.
  */
-export function useMinerOrder<T extends { id: number }>(items: T[]): UseMinerOrderResult<T> {
-  const [order, setOrder] = useState<number[]>(readStored);
-  // Cross-tab sync: when another tab reorders, mirror the change
-  // here so a multi-window MinerWatch session stays coherent.
-  useEffect(() => {
-    function onStorage(e: StorageEvent) {
-      if (e.key !== MW_ORDER_KEY) return;
-      setOrder(readStored());
-    }
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+export function useMinerOrder<T extends { id: number; mac?: string | null }>(
+  items: T[],
+): UseMinerOrderResult<T> {
+  const query = useMinerOrderQuery();
+  const save = useSaveMinerOrder();
+  const resetMutation = useResetMinerOrder();
 
-  // Whenever the API list changes, prune IDs that no longer exist
-  // (the user deleted a miner) and ensure new IDs are NOT injected
-  // into the stored order — they show up at the bottom via the
-  // ``ordered`` derivation below. Pruning is the only mutation here.
-  const lastPruneSig = useRef('');
+  const serverOrder = query.data?.order;
+
+  // Effective order: the server's answer once it arrives (kept fresh
+  // optimistically by useSaveMinerOrder), the cached copy before that
+  // (or if the GET fails) so the grid renders stable immediately.
+  const order = useMemo<string[]>(
+    () => serverOrder ?? readCache(),
+    [serverOrder],
+  );
+
+  // Mirror the server answer for the next first paint.
   useEffect(() => {
-    const valid = new Set(items.map((m) => m.id));
-    const pruned = order.filter((id) => valid.has(id));
-    // Avoid setState loops: only write if something actually changed.
-    const sig = pruned.join(',');
-    if (sig === lastPruneSig.current) return;
-    lastPruneSig.current = sig;
-    if (pruned.length !== order.length) {
-      setOrder(pruned);
-      writeStored(pruned);
-    }
-  }, [items, order]);
+    if (serverOrder !== undefined) writeCache(serverOrder);
+  }, [serverOrder]);
+
+  // One-shot migration of the legacy per-browser order. Guarded three
+  // ways: only after the GET resolved, only when the backend has no
+  // order yet (it must never overwrite an arrangement made on another
+  // device), and only once per session. The legacy key is removed only
+  // after the POST succeeds, so a failed save can retry next visit.
+  const migrated = useRef(false);
+  const saveMutate = save.mutate;
+  useEffect(() => {
+    if (migrated.current) return;
+    if (serverOrder === undefined || serverOrder.length > 0) return;
+    if (!items.length) return;
+    const legacy = readLegacy();
+    if (!legacy.length) return;
+    const macById = new Map(items.map((m) => [m.id, macIdOf(m)] as const));
+    const macs = legacy
+      .map((id) => macById.get(id))
+      .filter((v): v is string => typeof v === 'string');
+    if (!macs.length) return;
+    migrated.current = true;
+    writeCache(macs);
+    saveMutate(macs, {
+      onSuccess: () => {
+        try {
+          window.localStorage.removeItem(LEGACY_KEY);
+        } catch {
+          /* ignore */
+        }
+      },
+    });
+  }, [serverOrder, items, saveMutate]);
 
   const ordered = useMemo<T[]>(() => {
     if (!items.length) return items;
-    const byId = new Map<number, T>(items.map((m) => [m.id, m] as const));
-    const seen = new Set<number>();
+    const byMac = new Map<string, T>(items.map((m) => [macIdOf(m), m] as const));
+    const seen = new Set<string>();
     const out: T[] = [];
     // First: items the user has explicitly ordered, in stored order.
-    for (const id of order) {
-      const item = byId.get(id);
-      if (item && !seen.has(id)) {
+    // Ids of removed miners simply find no match and are skipped.
+    for (const mac of order) {
+      const item = byMac.get(mac);
+      if (item && !seen.has(mac)) {
         out.push(item);
-        seen.add(id);
+        seen.add(mac);
       }
     }
     // Then: items not yet in the stored order, in their original
     // (API) order. New miners therefore append to the end.
     for (const item of items) {
-      if (!seen.has(item.id)) out.push(item);
+      const mac = macIdOf(item);
+      if (!seen.has(mac)) {
+        out.push(item);
+        seen.add(mac);
+      }
     }
     return out;
   }, [items, order]);
@@ -121,22 +178,28 @@ export function useMinerOrder<T extends { id: number }>(items: T[]): UseMinerOrd
       // that previously-unordered items get baked into the preference
       // on first move (otherwise dragging an "unordered" miner would
       // not persist relative to the others).
-      const currentIds = ordered.map((m) => m.id);
-      if (fromIndex < 0 || fromIndex >= currentIds.length) return;
-      if (toIndex < 0 || toIndex >= currentIds.length) return;
-      const next = [...currentIds];
+      const currentMacs = ordered.map(macIdOf);
+      if (fromIndex < 0 || fromIndex >= currentMacs.length) return;
+      if (toIndex < 0 || toIndex >= currentMacs.length) return;
+      const next = [...currentMacs];
       const [moved] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, moved);
-      setOrder(next);
-      writeStored(next);
+      // The mutation patches the query cache in onMutate, so the grid
+      // flips instantly and a refetch can't bounce it back mid-drag.
+      // The local cache write keeps the next first-paint consistent
+      // even if the POST fails (offline): behaviourally that's the old
+      // per-browser mode, and the save retries on the next drag.
+      writeCache(next);
+      saveMutate(next);
     },
-    [ordered],
+    [ordered, saveMutate],
   );
 
+  const resetMutate = resetMutation.mutate;
   const reset = useCallback(() => {
-    setOrder([]);
-    writeStored([]);
-  }, []);
+    writeCache([]);
+    resetMutate();
+  }, [resetMutate]);
 
   return { ordered, reorder, reset };
 }

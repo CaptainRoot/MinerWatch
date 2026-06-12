@@ -14,7 +14,7 @@ import hmac
 import logging
 import time
 from dataclasses import asdict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from urllib.parse import quote
 
@@ -447,6 +447,47 @@ async def api_list_miners() -> dict:
             }
         )
     return {"miners": out}
+
+
+class MinerOrderPayload(BaseModel):
+    """Custom fleet display order — list of sanitized-MAC ids.
+
+    Same stable ids the panel feed publishes (``mqtt.sanitize_mac``):
+    lowercase MAC without separators, or ``mw<db_id>`` when no MAC is
+    known. The dashboard sends the order it *displays*; the server
+    merges it with what's stored so entries of temporarily removed
+    miners keep their slot (see ``db.merge_miner_order``).
+    """
+
+    order: List[str]
+
+
+# NOTE: declared before the /api/miners/{miner_id} routes on purpose —
+# FastAPI matches in declaration order and "order" must not be parsed
+# as a miner_id.
+@app.get("/api/miners/order")
+async def api_get_miner_order() -> dict:
+    """The persisted display order shared by dashboard and ESP32 panel."""
+    return {"order": await db.get_miner_order()}
+
+
+@app.post("/api/miners/order")
+async def api_set_miner_order(payload: MinerOrderPayload) -> dict:
+    """Save the fleet display order.
+
+    The stored order also drives the ``<base>/panel`` MQTT feed, so the
+    ESP32 panel mirrors the dashboard arrangement on the next poll
+    cycle — no firmware involvement. Returns the merged order as stored.
+    """
+    return {"order": await db.set_miner_order(payload.order)}
+
+
+@app.delete("/api/miners/order")
+async def api_clear_miner_order() -> dict:
+    """Reset to the default order (by name). POST can't do this: its
+    orphan-preserving merge would resurrect every stored entry."""
+    await db.clear_miner_order()
+    return {"order": []}
 
 
 @app.get("/api/pools")

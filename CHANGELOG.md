@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-06-12
+
+### Added
+
+- **Custom miner order, shared with the ESP32 panel.** The dashboard's
+  drag-and-drop arrangement is now persisted server-side (settings key
+  `_miner_order`, new `GET/POST/DELETE /api/miners/order` endpoints)
+  instead of per-browser localStorage, and `panel_feed()` applies the
+  same order to the `minerwatch/panel` MQTT blob — so the ESPHome touch
+  panel shows cards exactly as arranged on the dashboard, with no
+  firmware change (the payload is only permuted, fields and structure
+  untouched). Entries are keyed by the stable sanitized-MAC id, so a
+  miner that is deleted and re-added reclaims its slot; new miners
+  append at the end, removed ones are skipped without shifting the
+  rest unexpectedly, and with no saved order the feed stays
+  byte-identical to before. Existing per-browser arrangements migrate
+  to the server automatically on first load.
+
+### Changed
+
+- **Avalon "VR" readings are labelled for what they are.** Avalon
+  miners (canaan family) have no VR sensor: the driver deliberately
+  feeds the air outlet temperature (`OTemp`) into the VR slot as a
+  thermal proxy. The miner page already said "Air outlet temp" — now
+  the dashboard tile ("Air out", with an explanatory hover tooltip),
+  the temperature chart tooltip and the Home Assistant discovery name
+  agree. Labels only: the MQTT field (`temp_vr_c` / panel `vr`), the
+  HA entity (`unique_id`, topic, template) and the ESP32 panel payload
+  are all unchanged.
+
+### Fixed
+
+- **Alert banner unreadable on phones.** With a single unread alert the
+  banner offered no expand control at all (it only appeared with two or
+  more), so a long message stayed truncated with no way to read it; and
+  even with several alerts the only toggle was the small chevron
+  button. The whole summary line is now a tap target that expands the
+  list (where messages wrap in full), and the expand button is always
+  present — "Show" with one alert, "Show all (n)" with more.
+
 ## [1.12.0] — 2026-06-11
 
 ### Added

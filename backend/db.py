@@ -1315,6 +1315,94 @@ async def all_settings() -> dict[str, str]:
     return {r["key"]: r["value"] for r in rows}
 
 
+# ---------- Miner display order ----------
+
+# Custom fleet display order, shared by the dashboard grid and the
+# `<base>/panel` MQTT feed (ESP32 panel). Stored in the same `settings`
+# key/value table as the runtime overrides, but with the `_` prefix that
+# marks internal state (like `_tier_migration_done`): `apply_overrides`
+# skips those keys, so this can never leak into the config dataclasses.
+#
+# The value is a JSON array of *stable* miner identifiers — the
+# sanitized-MAC ids produced by `mqtt.sanitize_mac` (`"a1b2c3d4e5f6"`,
+# or `"mw<db_id>"` for devices without a known MAC). Keying by MAC means
+# a miner that is deleted and later re-added keeps its slot: same
+# hardware, same MAC, same position.
+MINER_ORDER_KEY = "_miner_order"
+
+# Sanity cap on the stored list. Orphan entries (removed miners) are
+# kept on purpose so a returning miner reclaims its slot, but the list
+# must not grow without bound through repeated saves.
+_MINER_ORDER_MAX = 256
+
+
+def merge_miner_order(stored: list, submitted: list) -> list[str]:
+    """Merge a newly submitted display order with the stored one.
+
+    The submitted list is what the client currently *displays*, so it
+    cannot mention miners that are deleted at that moment. Stored
+    entries missing from the submission ("orphans") are re-inserted at
+    the index they previously occupied: a temporarily removed miner
+    gets its slot back when it returns, instead of falling to the end
+    just because the user reordered while it was gone.
+
+    Junk-tolerant by design (it faces the HTTP API): non-string and
+    empty entries are dropped, duplicates keep their first occurrence.
+    Pure function — unit-tested without a database.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in submitted:
+        if isinstance(v, str) and v and v not in seen:
+            out.append(v)
+            seen.add(v)
+            if len(out) >= _MINER_ORDER_MAX:
+                break
+    for idx, v in enumerate(stored):
+        if len(out) >= _MINER_ORDER_MAX:
+            # Cap reached: drop the oldest orphans, never the entries
+            # the client just submitted (those are live miners).
+            break
+        if isinstance(v, str) and v and v not in seen:
+            out.insert(min(idx, len(out)), v)
+            seen.add(v)
+    return out
+
+
+async def get_miner_order() -> list[str]:
+    """Return the persisted display order (list of sanitized-MAC ids).
+
+    Empty list when unset or unparsable — callers treat that as "no
+    custom order" and keep the default name sort, so a corrupt value
+    degrades to today's behaviour instead of erroring.
+    """
+    raw = await get_setting(MINER_ORDER_KEY)
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [v for v in parsed if isinstance(v, str) and v]
+
+
+async def set_miner_order(order: list) -> list[str]:
+    """Merge ``order`` into the stored one and persist. Returns the result."""
+    stored = await get_miner_order()
+    merged = merge_miner_order(stored, order)
+    await set_setting(MINER_ORDER_KEY, json.dumps(merged))
+    return merged
+
+
+async def clear_miner_order() -> None:
+    """Drop the custom order entirely (back to the default name sort)."""
+    async with connect() as conn:
+        await conn.execute("DELETE FROM settings WHERE key = ?", (MINER_ORDER_KEY,))
+        await conn.commit()
+
+
 # ---------- Push subscriptions ----------
 
 async def add_push_sub(endpoint: str, p256dh: str, auth_key: str, user_agent: str | None) -> int:

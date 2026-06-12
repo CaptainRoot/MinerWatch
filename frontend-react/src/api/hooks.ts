@@ -17,6 +17,7 @@ import type {
   MinerCreatePayload,
   MinerDetailResponse,
   MinerListResponse,
+  MinerOrderResponse,
   NotableSharesResponse,
   PoolsResponse,
   PredictionCoin,
@@ -49,6 +50,19 @@ export function useMiners() {
     queryKey: ['miners'],
     queryFn: ({ signal }) => api<MinerListResponse>('/api/miners', { signal }),
     refetchInterval: FIVE_SECONDS,
+  });
+}
+
+// Persisted fleet display order (see `useMinerOrder` for the consumer).
+// The backend applies the same list to the `minerwatch/panel` MQTT blob,
+// so the ESP32 panel mirrors the dashboard arrangement. Slow cadence on
+// purpose: the order only changes when someone drags a card, and the
+// default refetch-on-focus already covers the cross-window case.
+export function useMinerOrderQuery() {
+  return useQuery({
+    queryKey: ['miner-order'],
+    queryFn: ({ signal }) => api<MinerOrderResponse>('/api/miners/order', { signal }),
+    refetchInterval: 30_000,
   });
 }
 
@@ -260,6 +274,36 @@ export function useDeleteMiner() {
     mutationFn: (id: number) => api<{ deleted: number }>(`/api/miners/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['miners'] });
+    },
+  });
+}
+
+export function useSaveMinerOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (order: string[]) =>
+      api<MinerOrderResponse>('/api/miners/order', { method: 'POST', body: { order } }),
+    // Optimistic: patch the cache before the POST resolves, so a
+    // 30s/focus refetch landing mid-drag can't bounce the grid back
+    // to the previous arrangement.
+    onMutate: async (order: string[]) => {
+      await qc.cancelQueries({ queryKey: ['miner-order'] });
+      qc.setQueryData<MinerOrderResponse>(['miner-order'], { order });
+    },
+    // The server may return a *merged* list (slots of temporarily
+    // removed miners are preserved) — adopt it as the new truth.
+    onSuccess: (data) => {
+      qc.setQueryData<MinerOrderResponse>(['miner-order'], data);
+    },
+  });
+}
+
+export function useResetMinerOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<MinerOrderResponse>('/api/miners/order', { method: 'DELETE' }),
+    onSuccess: (data) => {
+      qc.setQueryData<MinerOrderResponse>(['miner-order'], data);
     },
   });
 }

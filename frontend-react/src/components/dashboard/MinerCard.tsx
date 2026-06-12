@@ -62,8 +62,13 @@ export function MinerCard({ miner }: Props) {
             unit="°C"
             tone={offline ? undefined : tempTone(lm?.temp_chip_c)}
           />
+          {/* Avalon (canaan) has no VR sensor: the driver feeds the air
+              outlet temperature into temp_vr_c as a thermal proxy, so
+              the tile relabels it. The full wording lives on the miner
+              page (Live stats / Hardware) and in the hover tooltip. */}
           <Metric
-            label="VR"
+            label={miner.family === 'canaan' ? 'Air out' : 'VR'}
+            title={miner.family === 'canaan' ? 'Air outlet temperature — Avalon reports no VR sensor' : undefined}
             value={offline ? '—' : fmtNum(lm?.temp_vr_c, 1)}
             unit="°C"
             tone={offline ? undefined : tempTone(lm?.temp_vr_c)}
@@ -111,9 +116,12 @@ interface MetricProps {
   value: string;
   unit: string;
   tone?: ReturnType<typeof tempTone>;
+  /** Optional hover tooltip on the label (native title attribute) —
+   *  used to expand non-obvious short labels like "Air out". */
+  title?: string;
 }
 
-function Metric({ label, value, unit, tone }: MetricProps) {
+function Metric({ label, value, unit, tone, title }: MetricProps) {
   const toneCls =
     tone === 'critical' ? 'text-destructive'
     : tone === 'hot' ? 'text-orange-400'
@@ -121,7 +129,7 @@ function Metric({ label, value, unit, tone }: MetricProps) {
     : 'text-foreground';
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground" title={title}>{label}</span>
       <span className={cn('text-sm font-semibold tabular-nums', toneCls)}>
         {value}
         {unit && <span className="ml-1 text-[10px] font-normal text-muted-foreground">{unit}</span>}

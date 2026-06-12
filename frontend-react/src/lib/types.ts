@@ -228,6 +228,13 @@ export interface MinerListResponse {
   miners: MinerListEntry[];
 }
 
+// Persisted fleet display order — sanitized-MAC ids (lowercase MAC
+// without separators, or `mw<db_id>` when no MAC is known). The same
+// list drives the dashboard grid and the ESP32 panel MQTT feed.
+export interface MinerOrderResponse {
+  order: string[];
+}
+
 // One row from /api/pools — a single (miner, pool slot) pair.
 //
 // Field availability varies by driver (see backend/miners/base.py:

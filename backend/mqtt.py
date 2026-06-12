@@ -24,7 +24,7 @@ import re
 import time
 from typing import Any
 
-from . import btc_price
+from . import btc_price, db
 from .ambient_temp import AmbientSnapshot, AmbientTemp
 from .config import get_config
 from .miners import driver_for_record, get_driver
@@ -183,6 +183,7 @@ def panel_feed(
     temp_min_c: float | None = None,
     temp_max_c: float | None = None,
     temp_active: bool = False,
+    order: list[str] | None = None,
 ) -> dict[str, Any]:
     """Consolidated single-topic blob for a constrained display (ESPHome panel).
 
@@ -203,7 +204,31 @@ def panel_feed(
     ``temp_c`` (current, may be null when stale), ``temp_min_c`` and
     ``temp_max_c`` (session extremes). The whole block is omitted when the relay
     is off / has no data, so the panel shows no temperature row.
+
+    ``order`` is the user's custom display order: a list of sanitized-MAC
+    ids (see ``sanitize_mac`` / ``db.get_miner_order``). The firmware draws
+    cards in array order (and truncates at 16), so permuting here is all it
+    takes to reorder the panel — no firmware change, no payload change.
+    Miners named in ``order`` come first, in that order; everyone else
+    (new miners, miners never arranged) follows in the incoming order.
+    Stale ids of removed miners are skipped harmlessly. ``None`` or an
+    empty list reproduces today's output byte-for-byte. The permutation
+    only ever rearranges ``miners`` — same rows, same fields, so the
+    topic's data contract is untouched.
     """
+    if order:
+        pos = {mac_id: i for i, mac_id in enumerate(order)}
+        ranked: list[tuple[int, dict]] = []
+        rest: list[dict] = []
+        for rec in miners:
+            rank = pos.get(sanitize_mac(rec.get("mac"), rec.get("id")))
+            if rank is None:
+                rest.append(rec)
+            else:
+                ranked.append((rank, rec))
+        ranked.sort(key=lambda t: t[0])
+        miners = [rec for _, rec in ranked] + rest
+
     out: list[dict[str, Any]] = []
     for rec in miners:
         mac_id = sanitize_mac(rec.get("mac"), rec.get("id"))
@@ -266,6 +291,14 @@ def discovery_configs(
     items: list[tuple[str, dict[str, Any]]] = []
 
     for object_id, field, name, dev_class, unit, state_class, icon, ent_cat in SENSORS:
+        # Avalon (canaan) has no VR sensor: the driver feeds the air
+        # outlet temperature (OTemp) into `temp_vr_c` as a thermal
+        # proxy. Same entity — unique_id, topic and value_template are
+        # untouched — only the friendly name tells the truth for that
+        # family. Users who renamed the entity in HA keep their name.
+        if object_id == "temp_vr" and rec is not None \
+                and (rec.get("family") or "").lower() == "canaan":
+            name = "Air outlet temp"
         payload: dict[str, Any] = {
             "name": name,
             "unique_id": f"minerwatch_{mac_id}_{object_id}",
@@ -558,6 +591,14 @@ class MqttPublisher:
                         + time.strftime(" %b, %H:%M", lt)
                     )
                 amb = self._ambient.snapshot()
+                # Custom display order (dashboard drag & drop). A DB
+                # hiccup must never block the publish: fall back to the
+                # default name sort and ship the feed anyway.
+                try:
+                    order = await db.get_miner_order()
+                except Exception:  # noqa: BLE001
+                    log.debug("miner order read failed — using default", exc_info=True)
+                    order = []
                 await client.publish(
                     f"{cfg.base_topic}/panel",
                     json.dumps(panel_feed(
@@ -566,6 +607,7 @@ class MqttPublisher:
                         btc_chg=(btc_chg if btc is not None else None),
                         temp_c=amb.current_c, temp_min_c=amb.min_c,
                         temp_max_c=amb.max_c, temp_active=amb.has_data,
+                        order=order or None,
                     )),
                     qos=cfg.qos, retain=cfg.retain,
                 )

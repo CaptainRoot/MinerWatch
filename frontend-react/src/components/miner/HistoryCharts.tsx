@@ -17,6 +17,9 @@ import { useMinerMetrics } from '@/api/hooks';
 
 interface Props {
   minerId: number;
+  /** Miner family — canaan relabels the VR series: Avalon has no VR
+   *  sensor, the driver feeds the air outlet temp into temp_vr_c. */
+  family?: string;
 }
 
 const RANGES: Array<{ label: string; seconds: number }> = [
@@ -32,8 +35,9 @@ const RANGES: Array<{ label: string; seconds: number }> = [
  * range. Powered by Recharts so axes, tooltip, and responsiveness come
  * for free. Range selector mirrors the vanilla one.
  */
-export function HistoryCharts({ minerId }: Props) {
+export function HistoryCharts({ minerId, family }: Props) {
   const [range, setRange] = useState(86400);
+  const vrSeriesLabel = family === 'canaan' ? 'Air out' : 'VR';
   const now = Math.floor(Date.now() / 1000);
   const fromTs = now - range;
   const toTs = now;
@@ -185,7 +189,7 @@ export function HistoryCharts({ minerId }: Props) {
                 fontSize: 12,
               }}
               labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
-              formatter={(v: number, name: string) => [`${fmtNum(v, 1)} °C`, name === 'tempChip' ? 'Chip' : 'VR']}
+              formatter={(v: number, name: string) => [`${fmtNum(v, 1)} °C`, name === 'tempChip' ? 'Chip' : vrSeriesLabel]}
             />
             <Line type="monotone" dataKey="tempChip" stroke="#fb923c" strokeWidth={2} dot={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="tempVr" stroke="#facc15" strokeWidth={2} dot={false} isAnimationActive={false} />

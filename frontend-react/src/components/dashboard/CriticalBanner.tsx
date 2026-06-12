@@ -36,7 +36,9 @@ export function CriticalBanner({ miners, settings }: Props) {
       probs.push(`chip ${fmtNum(lm.temp_chip_c, 1)}°C ≥ ${chipMax}°C`);
     }
     if (lm.temp_vr_c !== null && lm.temp_vr_c !== undefined && lm.temp_vr_c >= vrMax) {
-      probs.push(`VR ${fmtNum(lm.temp_vr_c, 1)}°C ≥ ${vrMax}°C`);
+      // Avalon (canaan) has no VR sensor — temp_vr_c carries the air
+      // outlet temp, so the wording follows (same as the miner tiles).
+      probs.push(`${m.family === 'canaan' ? 'air out' : 'VR'} ${fmtNum(lm.temp_vr_c, 1)}°C ≥ ${vrMax}°C`);
     }
     if (probs.length) hot.push({ id: m.id, name: m.name, problems: probs });
   }

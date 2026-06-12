@@ -32,12 +32,22 @@ export function AlertsBanner() {
         : 'border-border bg-card text-foreground';
 
   const Icon = last.severity === 'critical' ? BellRing : Bell;
-  const canExpand = alerts.length > 1;
 
   return (
     <div className={`rounded-lg border text-sm ${tone}`}>
       <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
-        <div className="flex min-w-0 items-center gap-3">
+        {/* The whole summary line is a toggle. Two phone-sized fixes in
+            one: with a single alert there used to be NO toggle at all
+            (canExpand was length > 1), so a long truncated message
+            could never be read; and even with many alerts the only tap
+            target was the small chevron button. Tapping the line now
+            expands the list, where messages wrap in full. */}
+        <button
+          type="button"
+          className="flex min-w-0 items-center gap-3 text-left"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
           <Icon className="h-4 w-4 shrink-0" />
           <span className="font-medium whitespace-nowrap">
             {alerts.length} unread alert{alerts.length === 1 ? '' : 's'}
@@ -45,25 +55,23 @@ export function AlertsBanner() {
           {!expanded && (
             <span className="min-w-0 truncate opacity-90">· {last.message}</span>
           )}
-        </div>
+        </button>
         <div className="flex items-center gap-2 sm:ml-auto">
-          {canExpand && (
-            <Button
-              type="button"
-              size="sm"
-              variant="subtle"
-              className="flex-1 whitespace-nowrap sm:flex-initial"
-              onClick={() => setExpanded((v) => !v)}
-              aria-expanded={expanded}
-            >
-              {expanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-              {expanded ? 'Hide' : `Show all (${alerts.length})`}
-            </Button>
-          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="subtle"
+            className="flex-1 whitespace-nowrap sm:flex-initial"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+          >
+            {expanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+            {expanded ? 'Hide' : alerts.length > 1 ? `Show all (${alerts.length})` : 'Show'}
+          </Button>
           <Button
             type="button"
             size="sm"
