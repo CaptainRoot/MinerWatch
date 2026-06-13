@@ -20,6 +20,7 @@ import {
 
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/useTheme';
+import { SYSTEM_PAGE_ENABLED } from '@/lib/flags';
 import { useSystemInfo, useUpdateCheck } from '@/api/hooks';
 import { SecurityBanner } from '@/components/SecurityBanner';
 import { WhatsNewDialog } from '@/components/WhatsNewDialog';
@@ -304,7 +305,7 @@ export function AppShell() {
   // Static host info (cached, no polling). Drives whether the "System"
   // entry is listed at all.
   const { data: systemInfo } = useSystemInfo();
-  const systemSupported = Boolean(systemInfo?.supported);
+  const systemSupported = SYSTEM_PAGE_ENABLED && Boolean(systemInfo?.supported);
 
   // Close the mobile drawer whenever the route changes — otherwise the
   // user taps a link and the drawer stays open over the new page.

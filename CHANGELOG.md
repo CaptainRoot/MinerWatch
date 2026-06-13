@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.15.0] — 2026-06-13
+## [1.15.1] — 2026-06-13
 
 ### Added
 
@@ -31,16 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **System page is shown on any sensor-capable Linux host, not just Raspberry
-  Pi.** The "System" sidebar entry and page now appear whenever the host is
-  Linux and exposes at least one hardware signal — a CPU temperature sensor
-  (`/sys/class/thermal` or `vcgencmd`) or a discoverable fan — instead of being
-  gated on Raspberry Pi detection. On macOS or a locked-down container (where
-  `/sys` isn't exposed) the entry stays hidden, so no misleading host data
-  (e.g. a container's overlay filesystem reported as "disk") is shown. The
-  Pi-only readings (core voltage, throttling flags via `vcgencmd`) still appear
-  only on a Pi; CPU, RAM, disk, temperature and fan work wherever the sensors
-  exist. New `supported` flag on `GET /api/system/info`.
+- **System (host metrics) page hidden for now.** It is hidden on every host,
+  including Raspberry Pi. The page reads cleanly on a Pi but is unreliable
+  elsewhere — in particular inside the Umbrel container, where limited `/sys`
+  access, the container overlay filesystem reported as "disk", and the absence
+  of `vcgencmd` make the readings misleading. The page, its host-capability
+  detection (`supported` flag on `GET /api/system/info`) and the backend
+  endpoints all stay in the code behind a single `SYSTEM_PAGE_ENABLED` switch,
+  ready to re-enable once it works reliably across platforms.
 
 ## [1.14.1] — 2026-06-13
 

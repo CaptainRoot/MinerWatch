@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Slider } from '@/components/ui/slider';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
+import { SYSTEM_PAGE_ENABLED } from '@/lib/flags';
 import { fmtNum, fmtUptime, tempTone } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useSetSystemFan, useSystemInfo, useSystemSnapshot } from '@/api/hooks';
@@ -59,7 +60,7 @@ export function SystemPage() {
     );
   }
 
-  if (!info?.supported) {
+  if (!SYSTEM_PAGE_ENABLED || !info?.supported) {
     return (
       <Card>
         <CardHeader>
