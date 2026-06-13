@@ -490,6 +490,35 @@ async def api_clear_miner_order() -> dict:
     return {"order": []}
 
 
+class DashboardLayoutPayload(BaseModel):
+    """Custom display order for the main dashboard's movable sections.
+
+    A list of stable section ids defined by the frontend (e.g.
+    ``"fleet-summary"``, ``"miner-grid"``). Purely a display preference —
+    unlike the miner order it is not shared with the ESP32 panel."""
+
+    order: List[str]
+
+
+@app.get("/api/dashboard/layout")
+async def api_get_dashboard_layout() -> dict:
+    """The persisted order of the dashboard's movable sections."""
+    return {"order": await db.get_dashboard_layout()}
+
+
+@app.post("/api/dashboard/layout")
+async def api_set_dashboard_layout(payload: DashboardLayoutPayload) -> dict:
+    """Save the dashboard section order. Returns the stored (cleaned) list."""
+    return {"order": await db.set_dashboard_layout(payload.order)}
+
+
+@app.delete("/api/dashboard/layout")
+async def api_clear_dashboard_layout() -> dict:
+    """Reset the dashboard to its default section order."""
+    await db.clear_dashboard_layout()
+    return {"order": []}
+
+
 @app.get("/api/pools")
 async def api_list_pools() -> dict:
     """Flat view of every (miner, pool slot) currently configured.

@@ -9,6 +9,7 @@ import type {
   BestRecordsResponse,
   BestRecordsTopResponse,
   BlockFindsResponse,
+  DashboardLayoutResponse,
   DiscoveryResponse,
   DonationInfo,
   DonationListResponse,
@@ -323,6 +324,46 @@ export function useResetMinerOrder() {
     mutationFn: () => api<MinerOrderResponse>('/api/miners/order', { method: 'DELETE' }),
     onSuccess: (data) => {
       qc.setQueryData<MinerOrderResponse>(['miner-order'], data);
+    },
+  });
+}
+
+// Persisted order of the main dashboard's movable sections (see
+// `useDashboardLayout`). Frontend-only cosmetic preference — not shared
+// with the ESP32 panel. Slow cadence: it only changes on a drag, and
+// refetch-on-focus covers the cross-window case.
+export function useDashboardLayoutQuery() {
+  return useQuery({
+    queryKey: ['dashboard-layout'],
+    queryFn: ({ signal }) => api<DashboardLayoutResponse>('/api/dashboard/layout', { signal }),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useSaveDashboardLayout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (order: string[]) =>
+      api<DashboardLayoutResponse>('/api/dashboard/layout', { method: 'POST', body: { order } }),
+    // Optimistic, like the miner order: patch the cache before the POST
+    // resolves so a 30s/focus refetch landing mid-drag can't bounce the
+    // arrangement back.
+    onMutate: async (order: string[]) => {
+      await qc.cancelQueries({ queryKey: ['dashboard-layout'] });
+      qc.setQueryData<DashboardLayoutResponse>(['dashboard-layout'], { order });
+    },
+    onSuccess: (data) => {
+      qc.setQueryData<DashboardLayoutResponse>(['dashboard-layout'], data);
+    },
+  });
+}
+
+export function useResetDashboardLayout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<DashboardLayoutResponse>('/api/dashboard/layout', { method: 'DELETE' }),
+    onSuccess: (data) => {
+      qc.setQueryData<DashboardLayoutResponse>(['dashboard-layout'], data);
     },
   });
 }

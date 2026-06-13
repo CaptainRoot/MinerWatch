@@ -6,6 +6,7 @@ import {
   BarChart3,
   Cpu,
   Download,
+  ExternalLink,
   Heart,
   Menu,
   Moon,
@@ -236,7 +237,19 @@ function Footer({ version }: { version?: string }) {
   const display = version ? `v${version} · local` : '· local';
   return (
     <div className="border-t border-border pt-4 text-[11px] text-muted-foreground">
-      <div className="font-mono">{display}</div>
+      <a
+        href="https://x.com/imlenti"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Built by Lenti — opens X profile in a new tab"
+        className="inline-flex items-center gap-1 font-medium text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+      >
+        <span>
+          <span aria-hidden="true" className="text-[#f7931a]">₿</span>uilt by Lenti
+        </span>
+        <ExternalLink aria-hidden="true" className="h-3 w-3" />
+      </a>
+      <div className="mt-1 font-mono">{display}</div>
       <div className="mt-1">No cloud · AGPL-3.0</div>
     </div>
   );

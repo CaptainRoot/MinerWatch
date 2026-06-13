@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Customizable dashboard layout.** The main dashboard's movable cards —
+  fleet summary, ambient temperature, best shares, the hashrate chart and the
+  miner grid — can now be reordered. A new "Customize layout" mode, entered
+  from Settings → General, swaps those sections for compact draggable chips, so
+  the full-height cards (and the miner grid's own drag-and-drop) are not mounted
+  while arranging and there is no nested drag-and-drop; drag to reorder, then
+  "Done" applies it. The order is persisted server-side (new
+  `GET`/`POST`/`DELETE /api/dashboard/layout`, settings key
+  `_dashboard_section_order`) so it follows the operator across browsers, and
+  self-heals when sections are added or removed. The toolbar, alert banners and
+  the block-find trophy stay pinned at the top; "Reset to default" clears the
+  custom order. Reordering the individual miner cards within the grid is
+  unchanged.
+
+- **Author credit in the sidebar footer.** The sidebar and mobile-drawer footer
+  now show a "₿uilt by Lenti" link — opening the author's X profile (@imlenti)
+  in a new tab — above the existing version and "No cloud · AGPL-3.0" lines.
+
 ## [1.14.1] — 2026-06-13
 
 ### Added

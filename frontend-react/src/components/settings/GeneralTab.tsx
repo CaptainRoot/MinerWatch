@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DashboardLayoutCard } from './DashboardLayoutCard';
 import { HiddenTrophiesCard } from './HiddenTrophiesCard';
 import type { SettingsFormState } from './SettingsForm';
 
@@ -12,6 +13,8 @@ interface Props {
 export function GeneralTab({ form, setForm }: Props) {
   return (
     <div className="space-y-4">
+      <DashboardLayoutCard />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Polling & storage</CardTitle>

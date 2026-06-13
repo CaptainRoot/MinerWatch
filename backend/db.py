@@ -1602,6 +1602,71 @@ async def clear_miner_order() -> None:
         await conn.commit()
 
 
+# Persisted display order for the main dashboard's *movable sections*
+# (fleet summary, ambient temperature, best shares, hashrate chart,
+# miner grid). Stored in the same settings key/value table with the `_`
+# prefix that marks internal state, so `apply_overrides` skips it.
+#
+# Unlike `_miner_order` this is a purely cosmetic, frontend-only
+# preference: it is NOT consumed by the ESP32 panel feed. The value is a
+# JSON array of stable section ids defined by the frontend; the frontend
+# owns that registry and re-appends any id it does not recognise, so the
+# backend just stores the validated list (last-write-wins, no
+# orphan-preserving merge — sections are code-defined, not user data).
+DASHBOARD_LAYOUT_KEY = "_dashboard_section_order"
+
+# Sanity cap: the section registry is tiny, this only guards against a
+# malformed POST trying to grow the row without bound.
+_DASHBOARD_LAYOUT_MAX = 64
+
+
+def _clean_section_order(order: list) -> list[str]:
+    """Drop non-string/empty entries and duplicates, keep first occurrence,
+    cap the length. Junk-tolerant because it faces the HTTP API."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in order:
+        if isinstance(v, str) and v and v not in seen:
+            out.append(v)
+            seen.add(v)
+            if len(out) >= _DASHBOARD_LAYOUT_MAX:
+                break
+    return out
+
+
+async def get_dashboard_layout() -> list[str]:
+    """Return the persisted dashboard section order (list of section ids).
+
+    Empty list when unset or unparsable — the frontend treats that as
+    "no custom order" and falls back to the default registry order, so a
+    corrupt value degrades to today's layout instead of erroring.
+    """
+    raw = await get_setting(DASHBOARD_LAYOUT_KEY)
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return _clean_section_order(parsed)
+
+
+async def set_dashboard_layout(order: list) -> list[str]:
+    """Persist the dashboard section order (cleaned). Returns the result."""
+    cleaned = _clean_section_order(order)
+    await set_setting(DASHBOARD_LAYOUT_KEY, json.dumps(cleaned))
+    return cleaned
+
+
+async def clear_dashboard_layout() -> None:
+    """Drop the custom layout entirely (back to the default order)."""
+    async with connect() as conn:
+        await conn.execute("DELETE FROM settings WHERE key = ?", (DASHBOARD_LAYOUT_KEY,))
+        await conn.commit()
+
+
 # ---------- Push subscriptions ----------
 
 async def add_push_sub(endpoint: str, p256dh: str, auth_key: str, user_agent: str | None) -> int:

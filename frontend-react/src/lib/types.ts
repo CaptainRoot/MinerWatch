@@ -235,6 +235,12 @@ export interface MinerOrderResponse {
   order: string[];
 }
 
+// Persisted order of the main dashboard's movable sections (stable
+// section ids). Frontend-only display preference; see `useDashboardLayout`.
+export interface DashboardLayoutResponse {
+  order: string[];
+}
+
 // One row from /api/pools — a single (miner, pool slot) pair.
 //
 // Field availability varies by driver (see backend/miners/base.py:
