@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.15.1] — 2026-06-13
 
+### Changed
+
+- **System (host metrics) page hidden for now.** It is hidden on every host,
+  including Raspberry Pi. The page reads cleanly on a Pi but is unreliable
+  elsewhere — in particular inside the Umbrel container, where limited `/sys`
+  access, the container overlay filesystem reported as "disk", and the absence
+  of `vcgencmd` make the readings misleading. The page, its host-capability
+  detection (`supported` flag on `GET /api/system/info`) and the backend
+  endpoints all stay in the code behind a single `SYSTEM_PAGE_ENABLED` switch,
+  ready to re-enable once it works reliably across platforms (the 1.15.0
+  attempt below regressed on Umbrel).
+
+## [1.15.0] — 2026-06-13
+
 ### Added
 
 - **Customizable dashboard layout.** The main dashboard's movable cards —
@@ -31,14 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **System (host metrics) page hidden for now.** It is hidden on every host,
-  including Raspberry Pi. The page reads cleanly on a Pi but is unreliable
-  elsewhere — in particular inside the Umbrel container, where limited `/sys`
-  access, the container overlay filesystem reported as "disk", and the absence
-  of `vcgencmd` make the readings misleading. The page, its host-capability
-  detection (`supported` flag on `GET /api/system/info`) and the backend
-  endpoints all stay in the code behind a single `SYSTEM_PAGE_ENABLED` switch,
-  ready to re-enable once it works reliably across platforms.
+- **System page shown on any sensor-capable Linux host, not just Raspberry
+  Pi.** The "System" sidebar entry and page appeared whenever the host was
+  Linux and exposed at least one hardware signal — a CPU temperature sensor
+  (`/sys/class/thermal` or `vcgencmd`) or a discoverable fan — instead of being
+  gated on Raspberry Pi detection. Introduced a `supported` flag on
+  `GET /api/system/info`. (Reverted in 1.15.1: it regressed inside the Umbrel
+  container.)
 
 ## [1.14.1] — 2026-06-13
 
