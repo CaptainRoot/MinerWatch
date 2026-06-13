@@ -17,6 +17,7 @@ import {
   usePauseMiner,
   useRestartMiner,
   useResumeMiner,
+  useShutdownMiner,
 } from '@/api/hooks';
 import { FAMILY_LABEL } from '@/lib/format';
 import type { MinerDetailResponse } from '@/lib/types';
@@ -30,6 +31,7 @@ export function MinerHeader({ data }: Props) {
   const restart = useRestartMiner();
   const pause = usePauseMiner();
   const resume = useResumeMiner();
+  const shutdown = useShutdownMiner();
   const remove = useDeleteMiner();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
@@ -37,14 +39,21 @@ export function MinerHeader({ data }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const { miner } = data;
+  // Two firmware paths to the same "Standby" idea:
+  //  - AxeOS Bitaxe: pause/resume (soft, no reboot)          → capabilities.pause
+  //  - NerdQAxe (shufps): shutdown, resume only via restart  → capabilities.shutdown
   const canPause = data.capabilities?.pause ?? false;
+  const canShutdown = data.capabilities?.shutdown ?? false;
   // Firmware-level gate: only show Standby when the miner actually reports
-  // the `miningPaused` field (recent AxeOS). On older firmware the field is
-  // absent → mining_paused is null → hide the button instead of offering a
-  // control the firmware would 404 ("unknown route"). canPause stays the
-  // coarse per-family gate; this adds the per-device firmware check.
-  const supportsPause = canPause && data.live_sample?.mining_paused != null;
+  // its stopped-state field (AxeOS `miningPaused` / NerdQAxe `shutdown`),
+  // surfaced by the backend as mining_paused. On firmware without it the
+  // value is null → hide the button instead of offering a control the
+  // firmware would 404.
+  const supportsStandby =
+    (canPause || canShutdown) && data.live_sample?.mining_paused != null;
   const paused = data.live_sample?.mining_paused === true;
+  const standbyPending = canPause ? pause.isPending : shutdown.isPending;
+  const resumePending = canPause ? resume.isPending : restart.isPending;
   const familyLabel = FAMILY_LABEL[miner.family] ?? miner.family;
   const subtitleParts = [
     familyLabel,
@@ -62,10 +71,10 @@ export function MinerHeader({ data }: Props) {
     }
   }
 
-  async function doPause() {
+  async function doStandby() {
     setError(null);
     try {
-      await pause.mutateAsync(miner.id);
+      await (canPause ? pause : shutdown).mutateAsync(miner.id);
       setStandbyOpen(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -75,7 +84,8 @@ export function MinerHeader({ data }: Props) {
   async function doResume() {
     setError(null);
     try {
-      await resume.mutateAsync(miner.id);
+      // AxeOS has a soft resume; NerdQAxe resumes only via a restart.
+      await (canPause ? resume : restart).mutateAsync(miner.id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
     }
@@ -115,10 +125,10 @@ export function MinerHeader({ data }: Props) {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {supportsPause &&
+          {supportsStandby &&
             (paused ? (
-              <Button variant="subtle" onClick={doResume} disabled={resume.isPending}>
-                <Play className="h-4 w-4" /> {resume.isPending ? 'Resuming…' : 'Resume'}
+              <Button variant="subtle" onClick={doResume} disabled={resumePending}>
+                <Play className="h-4 w-4" /> {resumePending ? 'Resuming…' : 'Resume'}
               </Button>
             ) : (
               <Button variant="subtle" onClick={() => setStandbyOpen(true)}>
@@ -165,8 +175,10 @@ export function MinerHeader({ data }: Props) {
             <DialogTitle>Put {miner.name} into standby?</DialogTitle>
             <DialogDescription>
               Mining stops and the ASIC powers down — power draw and heat fall to near idle.
-              The miner stays reachable and reports 0 H/s until you resume. This is not saved
-              across a reboot: a power cycle resumes mining.
+              The miner stays reachable and reports 0 H/s.{' '}
+              {canPause
+                ? 'Press Resume to bring it back (no reboot). A power cycle also resumes mining; this state is not saved across a reboot.'
+                : 'This firmware has no soft resume: bring it back with Resume (which restarts the miner) or a power cycle. The state is not saved across a reboot.'}
             </DialogDescription>
           </DialogHeader>
           {error && (
@@ -175,11 +187,11 @@ export function MinerHeader({ data }: Props) {
             </p>
           )}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setStandbyOpen(false)} disabled={pause.isPending}>
+            <Button variant="ghost" onClick={() => setStandbyOpen(false)} disabled={standbyPending}>
               Cancel
             </Button>
-            <Button onClick={doPause} disabled={pause.isPending}>
-              {pause.isPending ? 'Sending…' : 'Put into standby'}
+            <Button onClick={doStandby} disabled={standbyPending}>
+              {standbyPending ? 'Sending…' : 'Put into standby'}
             </Button>
           </DialogFooter>
         </DialogContent>

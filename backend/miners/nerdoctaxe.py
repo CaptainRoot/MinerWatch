@@ -30,8 +30,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
+
 from .base import PoolSnapshot
-from .bitaxe import BitaxeDriver, _opt_float, _opt_int
+from .bitaxe import BitaxeDriver, _coerce_flag, _opt_float, _opt_int
 
 
 class NerdOctaxeDriver(BitaxeDriver):
@@ -48,13 +50,30 @@ class NerdOctaxeDriver(BitaxeDriver):
     # Control capabilities (including can_set_pool) mirror the parent —
     # the dual-pool firmware accepts the same stratum PATCH fields.
     #
-    # Exception: the NerdQAxe/NerdOctaxe firmware (shufps fork) does NOT
-    # expose AxeOS's /api/system/pause + /resume. It has a distinct
-    # /api/system/shutdown instead (resumed via restart), which is a
-    # separate integration. Until that's wired up, keep the Standby
-    # (pause) capability off so the UI doesn't offer a control the
-    # firmware would reject.
+    # The NerdQAxe/NerdOctaxe firmware (shufps fork) does NOT expose AxeOS's
+    # /api/system/pause + /resume. Instead it has a dedicated
+    # POST /api/system/shutdown (cuts ASIC + power stage, non-persistent) and
+    # reports the state as ``shutdown`` in /api/system/info. So can_pause
+    # stays off and we expose can_shutdown; resume is the inherited restart.
     can_pause = False
+    can_shutdown = True
+
+    async def shutdown(self) -> bool:
+        """Stop hashing via the shufps ``POST /api/system/shutdown``.
+
+        Powers down the ASIC and the power stage; the controller stays
+        online and reports ``shutdown: true`` in /api/system/info. This
+        firmware has no soft resume — bring it back with :meth:`restart`
+        (inherited) or a power cycle. Non-persistent.
+        """
+        url = f"{self._base_url()}/api/system/shutdown"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as cli:
+                resp = await cli.post(url)
+                resp.raise_for_status()
+        except httpx.HTTPError:
+            return False
+        return True
 
     def _parse(self, data: dict[str, Any]):
         # Start from the Bitaxe parser so we inherit the established
@@ -63,6 +82,14 @@ class NerdOctaxeDriver(BitaxeDriver):
         sample = super()._parse(data)
         # Override the family — BitaxeDriver._parse() stamps "bitaxe".
         sample.family = self.family
+
+        # Deliberate-stop state. The shufps firmware reports it as ``shutdown``
+        # (bool) in /api/system/info — not AxeOS's ``miningPaused`` (which the
+        # parent looked for and didn't find). Map it onto the shared
+        # ``mining_paused`` field so the frontend shows the Standby badge and
+        # the guardian skips a stopped miner, exactly like Bitaxe.
+        _sd = data.get("shutdown")
+        sample.mining_paused = _coerce_flag(_sd) if _sd is not None else None
 
         # ---- PSU draw (Amps) ---------------------------------------
         # firmware emits both `current` (mA, int) and `currentA` (A, float).

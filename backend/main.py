@@ -1179,6 +1179,7 @@ def _capabilities(family: str) -> dict:
         "set_workmode": cls.can_set_workmode,
         "restart": cls.can_restart,
         "pause": cls.can_pause,
+        "shutdown": cls.can_shutdown,
         "set_pool": cls.can_set_pool,
     }
 
@@ -1288,6 +1289,20 @@ async def api_resume(miner_id: int) -> dict:
     if not drv.can_pause:
         raise HTTPException(400, f"family {miner['family']} does not support resume via API")
     ok = await drv.resume()
+    if not ok:
+        raise HTTPException(502, "the miner rejected the command")
+    return {"ok": True}
+
+
+@app.post("/api/miners/{miner_id}/control/shutdown")
+async def api_shutdown(miner_id: int) -> dict:
+    """Put a NerdQAxe-family miner into standby by powering down the ASIC.
+    There is no soft resume on this firmware — bring it back with
+    /control/restart or a power cycle. Non-persistent."""
+    miner, drv = await _resolve_driver(miner_id)
+    if not drv.can_shutdown:
+        raise HTTPException(400, f"family {miner['family']} does not support shutdown via API")
+    ok = await drv.shutdown()
     if not ok:
         raise HTTPException(502, "the miner rejected the command")
     return {"ok": True}

@@ -414,6 +414,19 @@ export function useResumeMiner() {
   });
 }
 
+// NerdQAxe standby: POST /api/system/shutdown (powers down the ASIC). No
+// soft resume on this firmware — the caller resumes with useRestartMiner.
+export function useShutdownMiner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api(`/api/miners/${id}/control/shutdown`, { method: 'POST' }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['miner', id] });
+    },
+  });
+}
+
 interface FanPayload {
   percent: number;
 }

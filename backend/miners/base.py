@@ -616,6 +616,12 @@ class MinerDriver:
     # non-persistent: a power cycle or a restart resumes mining. Gates the
     # frontend "Standby" button.
     can_pause: bool = False
+    # Whether this family can shut down hashing via the firmware API
+    # (NerdQAxe/shufps ``POST /api/system/shutdown``): powers down the ASIC
+    # and the power stage, controller stays online, non-persistent. Distinct
+    # from ``can_pause`` because this firmware has no soft resume — the miner
+    # is brought back with a restart. The frontend treats both as "Standby".
+    can_shutdown: bool = False
     # Whether this family supports repointing its pool via the API. Gates
     # the "Donate hashrate" feature: families with can_set_pool=False show
     # the donate action disabled. See docs/donate-hashrate-design.md.
@@ -660,6 +666,14 @@ class MinerDriver:
 
     async def resume(self) -> bool:
         """Resume hashing after :meth:`pause`. Returns True if accepted."""
+        raise NotImplementedError
+
+    async def shutdown(self) -> bool:
+        """Stop hashing by powering down the ASIC (NerdQAxe shutdown).
+
+        Like :meth:`pause` but with no soft resume: the miner is brought
+        back with :meth:`restart` or a power cycle. Returns True if accepted.
+        """
         raise NotImplementedError
 
     async def read_pool_config(self) -> "PoolConfig | None":

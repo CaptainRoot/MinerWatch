@@ -299,10 +299,12 @@ export interface Capabilities {
   // Firmware performance presets (Avalon work mode: Low/Mid/High).
   set_workmode: boolean;
   restart: boolean;
-  // AxeOS Standby — POST /api/system/pause + /resume. False on families
-  // whose firmware lacks it (NerdOctaxe uses a separate shutdown path,
-  // forge-os has none yet, cgminer families have none).
+  // AxeOS Standby — POST /api/system/pause + /resume (soft, no reboot).
+  // False on families whose firmware lacks it (forge-os, cgminer).
   pause: boolean;
+  // NerdQAxe Standby — POST /api/system/shutdown (powers down the ASIC).
+  // No soft resume: resume is via restart. False on other families.
+  shutdown: boolean;
   set_pool: boolean;
 }
 
