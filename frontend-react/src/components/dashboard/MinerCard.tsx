@@ -18,10 +18,10 @@ export function MinerCard({ miner }: Props) {
   const lm = miner.last_metric;
 
   // Status: live state first (poller verdict), then DB last_status as fallback
-  const status: 'online' | 'offline' | 'pending' = miner.live_online === false
+  const status: 'online' | 'offline' | 'pending' | 'standby' = miner.live_online === false
     ? 'offline'
     : miner.live_online === true
-      ? 'online'
+      ? (miner.live_mining_paused ? 'standby' : 'online')
       : (miner.last_status as 'pending' | undefined) ?? 'pending';
 
   // When the miner is offline we no longer have live readings, so show a
@@ -86,12 +86,20 @@ export function MinerCard({ miner }: Props) {
   );
 }
 
-function StatusBadge({ status }: { status: 'online' | 'offline' | 'pending' }) {
+function StatusBadge({ status }: { status: 'online' | 'offline' | 'pending' | 'standby' }) {
   if (status === 'online') {
     return (
       <Badge variant="success" className="flex items-center gap-1">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
         online
+      </Badge>
+    );
+  }
+  if (status === 'standby') {
+    return (
+      <Badge variant="outline" className="flex items-center gap-1 border-amber-500/40 text-amber-600">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+        standby
       </Badge>
     );
   }

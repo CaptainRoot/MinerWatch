@@ -444,6 +444,9 @@ async def api_list_miners() -> dict:
                 "last_metric": latest,
                 "live_online": bool(sample.online) if sample else None,
                 "live_error": sample.error if sample else None,
+                # Firmware standby flag (AxeOS pause / NerdQAxe shutdown), so the
+                # dashboard card can show "standby" instead of "online".
+                "live_mining_paused": sample.mining_paused if sample else None,
             }
         )
     return {"miners": out}

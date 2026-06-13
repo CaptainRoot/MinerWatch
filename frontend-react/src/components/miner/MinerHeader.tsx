@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Pause, Play, Power, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -37,6 +37,7 @@ export function MinerHeader({ data }: Props) {
   const [restartOpen, setRestartOpen] = useState(false);
   const [standbyOpen, setStandbyOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const { miner } = data;
   // Two firmware paths to the same "Standby" idea:
@@ -61,6 +62,14 @@ export function MinerHeader({ data }: Props) {
     miner.mac,
   ].filter(Boolean);
 
+  // Auto-dismiss the "command sent" banner after the firmware has had time
+  // to apply the change and a poll or two to reflect it.
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 30000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   async function doRestart() {
     setError(null);
     try {
@@ -76,6 +85,9 @@ export function MinerHeader({ data }: Props) {
     try {
       await (canPause ? pause : shutdown).mutateAsync(miner.id);
       setStandbyOpen(false);
+      setNotice(
+        `Standby command sent — ${miner.name} will stop within ~15–30s. The Standby badge appears once it confirms.`,
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
     }
@@ -86,6 +98,11 @@ export function MinerHeader({ data }: Props) {
     try {
       // AxeOS has a soft resume; NerdQAxe resumes only via a restart.
       await (canPause ? resume : restart).mutateAsync(miner.id);
+      setNotice(
+        canPause
+          ? `Resume command sent — ${miner.name} will start hashing again within ~15–30s.`
+          : `Resume command sent — ${miner.name} is restarting and will be back within ~30s.`,
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
     }
@@ -143,6 +160,23 @@ export function MinerHeader({ data }: Props) {
           </Button>
         </div>
       </header>
+
+      {notice && (
+        <div
+          className="mt-3 flex items-start justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600"
+          role="status"
+        >
+          <span>{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="shrink-0 text-amber-600/70 hover:text-amber-600"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <Dialog open={restartOpen} onOpenChange={setRestartOpen}>
         <DialogContent>

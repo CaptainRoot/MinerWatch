@@ -226,6 +226,10 @@ export interface MinerListEntry extends MinerRecord {
   last_metric: MetricSample | null;
   live_online: boolean | null;
   live_error: string | null;
+  // Firmware standby (AxeOS pause / NerdQAxe shutdown): the miner is online
+  // but deliberately stopped. Lets the card show "standby" instead of
+  // "online". Null when not reported / not yet polled.
+  live_mining_paused: boolean | null;
 }
 
 export interface MinerListResponse {
