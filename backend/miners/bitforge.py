@@ -59,6 +59,12 @@ class BitForgeDriver(BitaxeDriver):
     """
 
     family = "bitforge"
+    # forge-os is forked from an older AxeOS and does NOT expose
+    # /api/system/pause + /resume (verified against WantClue/forge-os).
+    # Keep Standby off until it's added upstream; otherwise it inherits
+    # BitaxeDriver.can_pause = True and would offer a control the firmware
+    # rejects.
+    can_pause = False
 
     def _parse(self, data: dict[str, Any]):
         # Start from the Bitaxe parser for all the shared field

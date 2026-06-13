@@ -1178,6 +1178,7 @@ def _capabilities(family: str) -> dict:
         "set_voltage": cls.can_set_voltage,
         "set_workmode": cls.can_set_workmode,
         "restart": cls.can_restart,
+        "pause": cls.can_pause,
         "set_pool": cls.can_set_pool,
     }
 
@@ -1261,6 +1262,32 @@ async def api_restart(miner_id: int) -> dict:
     if not drv.can_restart:
         raise HTTPException(400, f"family {miner['family']} does not support restart via API")
     ok = await drv.restart()
+    if not ok:
+        raise HTTPException(502, "the miner rejected the command")
+    return {"ok": True}
+
+
+@app.post("/api/miners/{miner_id}/control/pause")
+async def api_pause(miner_id: int) -> dict:
+    """Put the miner into standby: stop hashing, power down the ASIC, keep
+    the controller online. Reversible via /control/resume; non-persistent
+    (a power cycle resumes mining)."""
+    miner, drv = await _resolve_driver(miner_id)
+    if not drv.can_pause:
+        raise HTTPException(400, f"family {miner['family']} does not support pause via API")
+    ok = await drv.pause()
+    if not ok:
+        raise HTTPException(502, "the miner rejected the command")
+    return {"ok": True}
+
+
+@app.post("/api/miners/{miner_id}/control/resume")
+async def api_resume(miner_id: int) -> dict:
+    """Resume hashing after a /control/pause."""
+    miner, drv = await _resolve_driver(miner_id)
+    if not drv.can_pause:
+        raise HTTPException(400, f"family {miner['family']} does not support resume via API")
+    ok = await drv.resume()
     if not ok:
         raise HTTPException(502, "the miner rejected the command")
     return {"ok": True}

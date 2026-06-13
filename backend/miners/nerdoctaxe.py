@@ -47,6 +47,14 @@ class NerdOctaxeDriver(BitaxeDriver):
     # Same defaults as Bitaxe; firmware is served on port 80.
     # Control capabilities (including can_set_pool) mirror the parent —
     # the dual-pool firmware accepts the same stratum PATCH fields.
+    #
+    # Exception: the NerdQAxe/NerdOctaxe firmware (shufps fork) does NOT
+    # expose AxeOS's /api/system/pause + /resume. It has a distinct
+    # /api/system/shutdown instead (resumed via restart), which is a
+    # separate integration. Until that's wired up, keep the Standby
+    # (pause) capability off so the UI doesn't offer a control the
+    # firmware would reject.
+    can_pause = False
 
     def _parse(self, data: dict[str, Any]):
         # Start from the Bitaxe parser so we inherit the established

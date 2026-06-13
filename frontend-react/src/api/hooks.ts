@@ -389,6 +389,31 @@ export function useRestartMiner() {
   });
 }
 
+// Standby: stop hashing / power down the ASIC (AxeOS pause). Resume brings
+// it back. Both invalidate the miner detail so the Standby badge flips on
+// the next poll.
+export function usePauseMiner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api(`/api/miners/${id}/control/pause`, { method: 'POST' }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['miner', id] });
+    },
+  });
+}
+
+export function useResumeMiner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api(`/api/miners/${id}/control/resume`, { method: 'POST' }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['miner', id] });
+    },
+  });
+}
+
 interface FanPayload {
   percent: number;
 }

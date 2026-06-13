@@ -145,6 +145,10 @@ export interface LiveSample {
   host: string;
   online: boolean;
   error: string | null;
+  // Firmware paused/standby (AxeOS `miningPaused`): hashing stopped, ASIC
+  // powered down, controller still online. Null when the firmware doesn't
+  // report it (older builds / families without the feature).
+  mining_paused: boolean | null;
   mac: string | null;
   model: string | null;
   // ASIC chip model (e.g. "BM1370"), derived from the model name by the
@@ -295,6 +299,10 @@ export interface Capabilities {
   // Firmware performance presets (Avalon work mode: Low/Mid/High).
   set_workmode: boolean;
   restart: boolean;
+  // AxeOS Standby — POST /api/system/pause + /resume. False on families
+  // whose firmware lacks it (NerdOctaxe uses a separate shutdown path,
+  // forge-os has none yet, cgminer families have none).
+  pause: boolean;
   set_pool: boolean;
 }
 

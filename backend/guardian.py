@@ -476,6 +476,14 @@ class GuardianController:
             sample = samples.get(miner_id)
             if sample is None or not sample.online:
                 continue
+            # Skip a miner that's deliberately in standby (AxeOS pause): its
+            # ASIC is powered down and reads 0 H/s, which the governor would
+            # otherwise read as instability and try to "cure" by raising
+            # voltage on a chip that isn't even running. Leaving it out of
+            # ``seen`` also drops its state, so it restarts from a fresh
+            # baseline on resume.
+            if sample.mining_paused:
+                continue
             seen.add(miner_id)
             try:
                 await self._govern_one(miner, sample, gcfg, cfg)

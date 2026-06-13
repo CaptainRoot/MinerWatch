@@ -31,6 +31,11 @@ class BitaxeDriver(MinerDriver):
     can_set_frequency = True
     can_set_voltage = True
     can_restart = True
+    # AxeOS exposes POST /api/system/pause + /resume on recent firmware.
+    # NerdOctaxe (shufps fork) and BitForge (forge-os) inherit this driver
+    # but their firmware does NOT have these endpoints, so both override
+    # can_pause back to False — see nerdoctaxe.py / bitforge.py.
+    can_pause = True
     can_set_pool = True
 
     def _base_url(self) -> str:
@@ -201,10 +206,17 @@ class BitaxeDriver(MinerDriver):
             fallback_url
         )
 
+        # Firmware "paused"/standby flag. Present on AxeOS builds that
+        # support POST /api/system/pause; absent on older firmware, where
+        # we leave it None ("unknown") rather than reporting False.
+        _mp = data.get("miningPaused")
+        mining_paused = _coerce_flag(_mp) if _mp is not None else None
+
         sample = MinerSample(
             family=self.family,
             host=self.host,
             online=True,
+            mining_paused=mining_paused,
             mac=(data.get("macAddr") or data.get("macAddress") or "").upper() or None,
             model=data.get("ASICModel") or data.get("boardVersion"),
             hostname=data.get("hostname"),
@@ -333,6 +345,35 @@ class BitaxeDriver(MinerDriver):
 
     async def restart(self) -> bool:
         url = f"{self._base_url()}/api/system/restart"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as cli:
+                resp = await cli.post(url)
+                resp.raise_for_status()
+        except httpx.HTTPError:
+            return False
+        return True
+
+    async def pause(self) -> bool:
+        """Stop hashing via AxeOS ``POST /api/system/pause``.
+
+        The firmware cuts the ASIC core voltage and holds the chip in
+        reset (power + heat fall to near idle) while the ESP stays online.
+        Reversible with :meth:`resume`; non-persistent (a power cycle or a
+        restart resumes mining). Returns False on any transport error,
+        including ``404`` on firmware too old to expose the endpoint.
+        """
+        url = f"{self._base_url()}/api/system/pause"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as cli:
+                resp = await cli.post(url)
+                resp.raise_for_status()
+        except httpx.HTTPError:
+            return False
+        return True
+
+    async def resume(self) -> bool:
+        """Resume hashing via AxeOS ``POST /api/system/resume``."""
+        url = f"{self._base_url()}/api/system/resume"
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as cli:
                 resp = await cli.post(url)

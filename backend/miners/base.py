@@ -157,6 +157,13 @@ class MinerSample:
     host: str
     online: bool = True
     error: str | None = None
+    # Firmware "paused"/standby state (AxeOS ``miningPaused``): hashing is
+    # stopped and the ASIC is powered down, but the controller is still
+    # online and answering. ``None`` when the firmware doesn't report it
+    # (older builds / families without the feature). Lets the frontend show
+    # a Standby badge and lets the alerts/guardian pipeline skip the
+    # offline / zero-hashrate checks for a deliberately stopped miner.
+    mining_paused: bool | None = None
 
     # Identity
     mac: str | None = None
@@ -602,6 +609,13 @@ class MinerDriver:
     # firmware-blessed command the vendor app also issues.
     can_set_workmode: bool = False
     can_restart: bool = False
+    # Whether this family can pause/resume hashing via the firmware API
+    # (AxeOS ``POST /api/system/pause`` + ``/resume``). Pause cuts the ASIC
+    # core voltage and holds the chip in reset, so power and heat drop to
+    # near idle while the controller stays online and reachable. It is
+    # non-persistent: a power cycle or a restart resumes mining. Gates the
+    # frontend "Standby" button.
+    can_pause: bool = False
     # Whether this family supports repointing its pool via the API. Gates
     # the "Donate hashrate" feature: families with can_set_pool=False show
     # the donate action disabled. See docs/donate-hashrate-design.md.
@@ -632,6 +646,20 @@ class MinerDriver:
         raise NotImplementedError
 
     async def restart(self) -> bool:
+        raise NotImplementedError
+
+    async def pause(self) -> bool:
+        """Stop hashing without rebooting the controller.
+
+        The ASIC is powered down and held in reset, so power draw and heat
+        drop to near idle while the controller stays online. Reversible via
+        :meth:`resume`. Non-persistent: a power cycle or restart resumes
+        mining. Returns True if the miner accepted the command.
+        """
+        raise NotImplementedError
+
+    async def resume(self) -> bool:
+        """Resume hashing after :meth:`pause`. Returns True if accepted."""
         raise NotImplementedError
 
     async def read_pool_config(self) -> "PoolConfig | None":
