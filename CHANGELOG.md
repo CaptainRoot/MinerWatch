@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Remote standby — stop a miner and bring it back — for AxeOS and NerdQAxe.**
+  A miner can now be put into standby straight from MinerWatch: the ASIC is
+  powered down and held idle so power draw and heat fall to near nothing, while
+  the controller stays online and reachable; a matching action resumes it. The
+  state is non-persistent by design — a power cycle (or a restart) resumes
+  mining — so a deliberately stopped miner never gets stuck off. Two firmware
+  paths are wired up: AxeOS Bitaxe uses the soft `POST /api/system/pause` +
+  `/resume` (no reboot; requires AxeOS ≥ v2.14.0b1, which first shipped the
+  endpoints and the `miningPaused` flag), while NerdQAxe / NerdOctaxe (shufps
+  firmware) use `POST /api/system/shutdown` and resume via a restart, since that
+  firmware has no soft resume. The control is self-detecting: the "Standby"
+  button appears only when the miner actually reports the state (`miningPaused`
+  / `shutdown` in `/api/system/info`), so it never offers a control that older
+  firmware would reject. New backend endpoints
+  `POST /api/miners/{id}/control/pause|resume|shutdown`, `pause` / `shutdown`
+  capability flags, and a `mining_paused` field on the live sample and the fleet
+  list. A standby miner is skipped by the Guardian co-tuner and does not trip
+  offline / zero-hashrate alerts. In the UI: a "Standby" badge on the miner
+  page, a confirmation banner after pausing or resuming (the command is sent
+  immediately and takes ~15–30s to take effect), and a "standby" state shown in
+  place of "online" on the dashboard cards. BitForge (forge-os) is not yet
+  supported — its firmware exposes no standby endpoint — so the button stays
+  hidden there.
+
 ## [1.15.1] — 2026-06-13
 
 ### Changed
