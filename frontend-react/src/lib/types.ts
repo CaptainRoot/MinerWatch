@@ -460,6 +460,23 @@ export interface MetricsRangeResponse {
   metrics: MetricSample[];
 }
 
+// One stored ambient (room) temperature sample, relayed from the optional
+// MQTT sensor. Fleet-wide, so there is no miner_id — see the History tab
+// "Temperature" overlay. `temp_c` is the bucket average on the rollup tiers.
+export interface AmbientHistoryPoint {
+  ts: number;
+  temp_c: number | null;
+}
+
+export interface AmbientHistoryResponse {
+  from_ts: number;
+  to_ts: number;
+  // Storage tier the backend resolved (``metrics`` | ``metrics_1m`` |
+  // ``metrics_1h``); mirrors the per-miner metrics contract.
+  tier: string;
+  points: AmbientHistoryPoint[];
+}
+
 export interface AuthStatus {
   enabled: boolean;
   authenticated?: boolean;
@@ -796,6 +813,11 @@ export interface LiveShareEvent {
   target: number;
   submitted: boolean;
   accepted: boolean | null;
+  // True for synthetic events from firmware that logs no per-share
+  // lines (forge-os v1.5+): `diff` is the pool target, i.e. a floor
+  // for the real difficulty. May flip back to false via an `amend`
+  // event when the backend learns the exact value.
+  estimated?: boolean;
 }
 
 export interface LiveSharesStats {
@@ -806,6 +828,10 @@ export interface LiveSharesStats {
   submitted_total: number;
   accepted_total: number;
   rejected_total: number;
+  // True when the stream is running on verdict-derived synthetic
+  // events (no per-share log lines on this firmware).
+  synthetic?: boolean;
+  estimated_total?: number;
   last_event_ts: number | null;
   buffered: number;
   since: number;

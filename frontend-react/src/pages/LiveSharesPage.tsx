@@ -10,20 +10,21 @@ const TAB_STORAGE_KEY = 'mw-live-shares-tab';
 /**
  * Dedicated "Live shares" page (its own nav entry, between Analytics and
  * Pools). Two tabs:
- *   - Per miner: the long-running single-device scatter + Hall of Fame.
  *   - All miners: a fleet-wide aggregated scatter, one colour per
- *     device, with per-miner toggle filters.
+ *     device, with per-miner toggle filters. This is the DEFAULT view:
+ *     it answers "is the fleet finding shares right now?" at a glance.
+ *   - Per miner: the long-running single-device scatter + Hall of Fame.
  * The active tab is persisted to localStorage so a user who lives in
- * the aggregated view doesn't have to re-pick it on every reload.
+ * the per-miner view doesn't have to re-pick it on every reload.
  */
 export function LiveSharesPage() {
   const { data: minersData } = useMiners();
   const miners = minersData?.miners ?? [];
 
   const [tab, setTab] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'single';
+    if (typeof window === 'undefined') return 'fleet';
     const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
-    return stored === 'fleet' ? 'fleet' : 'single';
+    return stored === 'single' ? 'single' : 'fleet';
   });
 
   useEffect(() => {
@@ -45,14 +46,14 @@ export function LiveSharesPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="single">Per miner</TabsTrigger>
           <TabsTrigger value="fleet">All miners</TabsTrigger>
+          <TabsTrigger value="single">Per miner</TabsTrigger>
         </TabsList>
-        <TabsContent value="single">
-          <LiveSharesCard miners={miners} />
-        </TabsContent>
         <TabsContent value="fleet">
           <FleetLiveSharesCard miners={miners} />
+        </TabsContent>
+        <TabsContent value="single">
+          <LiveSharesCard miners={miners} />
         </TabsContent>
       </Tabs>
     </div>

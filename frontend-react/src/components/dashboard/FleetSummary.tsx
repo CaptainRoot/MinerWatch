@@ -65,7 +65,7 @@ export function FleetSummary({ miners }: Props) {
       <Kpi
         icon={Cpu}
         iconTone="text-chart-hardware"
-        label="Efficiency"
+        label="Avg efficiency"
         value={efficiency ? fmtNum(efficiency, 1) : '—'}
         unit="W/TH"
       />

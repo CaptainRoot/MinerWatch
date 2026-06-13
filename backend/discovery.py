@@ -138,6 +138,13 @@ async def _identify_bitaxe(host: str) -> dict | None:
     # empty dict on older firmware that doesn't expose the endpoint.
     asic = await drv.fetch_asic_info()
     device_model = str(asic.get("deviceModel") or "").strip()
+    # forge-os reads deviceModel from NVS with the literal default
+    # "invalid" — a board whose factory provisioning never wrote the key
+    # reports that string verbatim after an OTA to v1.5+. Treat it as
+    # absent so the chiptemp/asic fingerprints below decide, instead of
+    # renaming the miner's model to "Invalid" on the next re-discovery.
+    if device_model.lower() == "invalid":
+        device_model = ""
 
     looks_bitforge = "bitforge" in device_model.lower() or "chiptemp1" in raw
     if looks_bitforge:

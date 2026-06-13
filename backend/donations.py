@@ -67,12 +67,20 @@ def donation_worker_name() -> str:
 
 def donation_pool_config() -> PoolConfig:
     """The pool we repoint donated miners at: solo.ckpool with the project
-    address as the worker. Password is ignored by ckpool."""
+    address as the worker. Password is ignored by ckpool.
+
+    ``tls=0`` is explicit, not a default: on TLS-capable firmware
+    (forge-os v1.5+) the flag lives in NVS per slot, so repointing only
+    URL/port/user would inherit a previously-configured TLS pool's flag
+    and try TLS against ckpool's plain-TCP endpoint — no shares until
+    revert. The revert itself restores the snapshot's own ``tls``.
+    """
     return PoolConfig(
         url=CKPOOL_SOLO_URL,
         port=CKPOOL_SOLO_PORT,
         user=donation_worker_name(),
         password="x",
+        tls=0,
     )
 
 
@@ -91,6 +99,7 @@ def donation_pool_config_fallback() -> PoolConfig:
         fb_port=CKPOOL_SOLO_PORT,
         fb_user=donation_worker_name(),
         fb_password="x",
+        fb_tls=0,  # same rationale as donation_pool_config()
     )
 
 

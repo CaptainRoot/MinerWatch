@@ -525,16 +525,29 @@ class PoolConfig:
     ``read_pool_config()`` and persist this as JSON, then restore it on
     revert. Keeping the fallback slot means revert is faithful even when
     the user had a custom backup pool.
+
+    ``tls`` / ``cert`` (and the ``fb_`` twins) mirror forge-os v1.5's
+    ``stratumTLS`` / ``stratumCert``. Tri-state semantics: ``None``
+    means "unknown — leave the firmware value untouched" (pre-TLS
+    snapshots, firmwares without the fields), while an explicit 0/1 is
+    written through on ``set_pool``. Repoint configs (donate) must carry
+    an explicit ``tls=0``: without it a slot previously configured for a
+    TLS pool keeps the flag in NVS and then tries TLS against the
+    plain-TCP donate pool, killing mining until the revert.
     """
 
     url: str | None = None
     port: int | None = None
     user: str | None = None          # worker / stratum username
     password: str | None = None
+    tls: int | None = None           # stratumTLS (0/1); None = don't touch
+    cert: str | None = None          # stratumCert pinned-cert blob
     fb_url: str | None = None        # fallback slot
     fb_port: int | None = None
     fb_user: str | None = None
     fb_password: str | None = None
+    fb_tls: int | None = None
+    fb_cert: str | None = None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -543,25 +556,35 @@ class PoolConfig:
                 "port": self.port,
                 "user": self.user,
                 "password": self.password,
+                "tls": self.tls,
+                "cert": self.cert,
                 "fb_url": self.fb_url,
                 "fb_port": self.fb_port,
                 "fb_user": self.fb_user,
                 "fb_password": self.fb_password,
+                "fb_tls": self.fb_tls,
+                "fb_cert": self.fb_cert,
             }
         )
 
     @classmethod
     def from_json(cls, raw: str) -> "PoolConfig":
+        # Snapshots persisted before the TLS fields existed simply lack
+        # the keys → .get() yields None → "don't touch" on restore.
         data = json.loads(raw) if raw else {}
         return cls(
             url=data.get("url"),
             port=data.get("port"),
             user=data.get("user"),
             password=data.get("password"),
+            tls=data.get("tls"),
+            cert=data.get("cert"),
             fb_url=data.get("fb_url"),
             fb_port=data.get("fb_port"),
             fb_user=data.get("fb_user"),
             fb_password=data.get("fb_password"),
+            fb_tls=data.get("fb_tls"),
+            fb_cert=data.get("fb_cert"),
         )
 
 

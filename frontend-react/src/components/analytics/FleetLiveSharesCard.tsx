@@ -39,6 +39,9 @@ interface ChartPoint {
   target: number;
   submitted: boolean;
   accepted: boolean | null;
+  // Synthetic event (firmware logs no per-share lines): diff is the
+  // pool target, a floor for the real difficulty.
+  estimated?: boolean;
   minerId: number;
   minerName: string;
 }
@@ -83,7 +86,10 @@ export function FleetLiveSharesCard({ miners }: Props) {
     [miners],
   );
 
-  const [rangeSec, setRangeSec] = useState(180);
+  // 10 minutes by default: the fleet view is a "what happened lately"
+  // glance, and on a vardiff'd solo pool shares are sparse enough that
+  // shorter windows often look empty.
+  const [rangeSec, setRangeSec] = useState(600);
 
   const [disabledIds, setDisabledIds] = useState<Set<number>>(readDisabledSet);
   const [showBelow, setShowBelow] = useState<boolean>(() => {
@@ -133,6 +139,7 @@ export function FleetLiveSharesCard({ miners }: Props) {
           target: e.target,
           submitted: e.submitted,
           accepted: e.accepted,
+          estimated: e.estimated,
           minerId: id,
           minerName: name,
         });
@@ -450,9 +457,15 @@ function ShareTooltip({ active, payload }: TooltipProps) {
         />
         <span className="font-semibold">{p.minerName}</span>
       </div>
-      <div className="mt-1 text-sm font-semibold tabular-nums">{fmtDifficulty(p.diff)}</div>
+      <div className="mt-1 text-sm font-semibold tabular-nums">
+        {p.estimated ? '≥ ' : ''}
+        {fmtDifficulty(p.diff)}
+      </div>
       <div className="text-muted-foreground">target {fmtDifficulty(p.target)}</div>
       <div className="text-muted-foreground">{verdict}</div>
+      {p.estimated && (
+        <div className="text-muted-foreground">exact difficulty not logged by this firmware</div>
+      )}
       <div className="text-muted-foreground">{new Date(p.ts).toLocaleTimeString()}</div>
     </div>
   );

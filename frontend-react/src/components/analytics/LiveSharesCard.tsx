@@ -39,6 +39,9 @@ interface ChartPoint {
   target: number;
   submitted: boolean;
   accepted: boolean | null;
+  // Synthetic event (firmware logs no per-share lines): diff is the
+  // pool target, a floor for the real difficulty.
+  estimated?: boolean;
 }
 
 interface Props {
@@ -81,6 +84,7 @@ export function LiveSharesCard({ miners }: Props) {
       target: e.target,
       submitted: e.submitted,
       accepted: e.accepted,
+      estimated: e.estimated,
     });
 
     const diffs = inWindow.map((e) => e.diff);
@@ -266,8 +270,12 @@ export function LiveSharesCard({ miners }: Props) {
           )}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Dots above the dashed pool-target line are shares submitted to the pool; the faint cloud
-          below is the ASIC's raw output.
+          {stats?.synthetic
+            ? 'This firmware does not log individual ASIC results, so dots are submitted shares ' +
+              'reconstructed from pool verdicts and plotted at the pool target — a floor for the ' +
+              'real difficulty, upgraded to the exact value when a new session best reveals it.'
+            : "Dots above the dashed pool-target line are shares submitted to the pool; the faint " +
+              "cloud below is the ASIC's raw output."}
         </p>
 
         {/* Near-block Hall of Fame */}
@@ -339,9 +347,15 @@ function ShareTooltip({ active, payload }: TooltipProps) {
         : 'submitted';
   return (
     <div className="rounded-md border border-border bg-card px-3 py-2 text-xs shadow-md">
-      <div className="text-sm font-semibold tabular-nums">{fmtDifficulty(p.diff)}</div>
+      <div className="text-sm font-semibold tabular-nums">
+        {p.estimated ? '≥ ' : ''}
+        {fmtDifficulty(p.diff)}
+      </div>
       <div className="text-muted-foreground">target {fmtDifficulty(p.target)}</div>
       <div className="text-muted-foreground">{verdict}</div>
+      {p.estimated && (
+        <div className="text-muted-foreground">exact difficulty not logged by this firmware</div>
+      )}
       <div className="text-muted-foreground">{new Date(p.ts).toLocaleTimeString()}</div>
     </div>
   );

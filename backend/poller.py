@@ -19,6 +19,7 @@ import time
 
 from .config import get_config
 from . import db, alerts
+from .log_streamer import log_streamer
 from .miners import driver_for_record
 from .miners.base import MinerSample
 from .mqtt import mqtt_publisher
@@ -92,6 +93,13 @@ class Poller:
             await db.update_miner_status(miner_id, "online" if sample.online else "offline")
             if sample.online:
                 await db.insert_metric(miner_id, ts, sample.to_db_sample())
+                # Feed the live streamer with what only REST can see on
+                # firmware that logs no per-share lines (forge-os v1.5+):
+                # stratumDiff seeds the synthetic-share chart floor.
+                if log_streamer.is_supported(sample.family):
+                    log_streamer.note_pool_target(
+                        miner_id, (sample.raw or {}).get("stratumDiff")
+                    )
                 # Track session/all-time best-share. The helper handles
                 # session-reset detection (uptime decreasing) and the
                 # monotonic all-time max. No-op if best_difficulty is None.
@@ -120,6 +128,16 @@ class Poller:
                         new_value=new.get("value"),
                         ts=ts,
                     )
+                # A fresh session best is the only REST trace of a high
+                # share's exact difficulty on per-share-less firmware:
+                # upgrade the matching synthetic event and feed the Hall
+                # of Fame. No-op for streams with a real share stream.
+                if evt.get("new_session") and log_streamer.is_supported(sample.family):
+                    sess_value = (rec.get("session") or {}).get("value")
+                    if sess_value:
+                        await log_streamer.note_session_best(
+                            miner_id, float(sess_value), ts=ts
+                        )
 
                 # =====================================================
                 # BLOCK-FOUND detection — see alerts.py for the opt-out.
@@ -151,6 +169,18 @@ class Poller:
             await mqtt_publisher.publish_fleet(miners, out)
         except Exception:  # noqa: BLE001
             log.debug("mqtt publish skipped", exc_info=True)
+
+        # Persist the relayed ambient (room) temperature as a fleet-wide
+        # time-series — one row per cycle — so the per-miner History chart
+        # can overlay it. Only when a fresh reading is available, mirroring
+        # the live card/panel: a stale or disabled relay simply writes
+        # nothing, leaving a gap in the line rather than a flat zero.
+        try:
+            amb = mqtt_publisher.ambient_snapshot()
+            if amb.available and amb.current_c is not None:
+                await db.insert_ambient_metric(ts, round(float(amb.current_c), 1))
+        except Exception:  # noqa: BLE001
+            log.debug("ambient persist skipped", exc_info=True)
 
         self._last_results = out
         return out
@@ -238,6 +268,9 @@ class Poller:
             return
         await db.rollup_to_1m(now=now)
         await db.rollup_to_1h(now=now)
+        # Same cadence for the fleet-wide ambient series.
+        await db.rollup_ambient_to_1m(now=now)
+        await db.rollup_ambient_to_1h(now=now)
         await db.set_setting("_last_rollup_ts", str(now))
 
     async def _cleanup_if_due(self) -> None:

@@ -134,6 +134,35 @@ CREATE TABLE IF NOT EXISTS metrics_1h (
 
 CREATE INDEX IF NOT EXISTS idx_metrics_1h_ts ON metrics_1h(ts);
 
+-- Ambient (room) temperature relayed from a separate MQTT sensor.
+-- Fleet-wide: there is a single probe, so unlike `metrics` there is no
+-- `miner_id` — one value per poll cycle. Mirrors the tiered retention of
+-- `metrics` so the per-miner History chart can overlay the room
+-- temperature across the same 1h–30d ranges. `ts` is the unix-second of
+-- the cycle and is the primary key (so it is already indexed).
+CREATE TABLE IF NOT EXISTS ambient_metrics (
+    ts      INTEGER PRIMARY KEY,   -- unix seconds, one row per cycle
+    temp_c  REAL
+);
+
+-- Rollup tier #1: 1-minute aggregates of `ambient_metrics`.
+CREATE TABLE IF NOT EXISTS ambient_metrics_1m (
+    ts           INTEGER PRIMARY KEY,   -- bucket-start unix timestamp
+    temp_c       REAL,                  -- AVG of the bucket
+    temp_min_c   REAL,                  -- MIN (coldest in the bucket)
+    temp_max_c   REAL,                  -- MAX (warmest in the bucket)
+    sample_count INTEGER NOT NULL
+);
+
+-- Rollup tier #2: 1-hour aggregates of `ambient_metrics_1m`.
+CREATE TABLE IF NOT EXISTS ambient_metrics_1h (
+    ts           INTEGER PRIMARY KEY,
+    temp_c       REAL,
+    temp_min_c   REAL,
+    temp_max_c   REAL,
+    sample_count INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alerts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     miner_id        INTEGER,
@@ -593,6 +622,50 @@ async def latest_metric(miner_id: int) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+# ---------- Ambient (room) temperature time-series ----------
+
+async def insert_ambient_metric(ts: int, temp_c: float) -> None:
+    """Append one relayed ambient-temperature sample (fleet-wide).
+
+    ``INSERT OR REPLACE`` keyed on ``ts`` so two cycles that happen to
+    land on the same second collapse to one row rather than erroring.
+    """
+    async with connect() as conn:
+        await conn.execute(
+            "INSERT OR REPLACE INTO ambient_metrics (ts, temp_c) VALUES (?, ?)",
+            (int(ts), float(temp_c)),
+        )
+        await conn.commit()
+
+
+async def ambient_metrics_range(
+    from_ts: int,
+    to_ts: int,
+) -> tuple[list[dict[str, Any]], str]:
+    """Return the relayed ambient-temperature series over a time range.
+
+    Reuses ``_pick_metrics_tier`` so the resolution lines up with the
+    per-miner History chart for the same selector. Rows are shaped
+    ``{ts, temp_c}`` — the rollup tiers surface the bucket average as
+    ``temp_c`` (min/max are kept in the tables but not needed by the
+    overlay line). The second tuple element is the tier name.
+    """
+    tier = _pick_metrics_tier(from_ts, to_ts)
+    table = {
+        "metrics": "ambient_metrics",
+        "metrics_1m": "ambient_metrics_1m",
+        "metrics_1h": "ambient_metrics_1h",
+    }[tier]
+    sql = (
+        f"SELECT ts, temp_c FROM {table} "
+        "WHERE ts >= ? AND ts <= ? ORDER BY ts ASC"
+    )
+    async with connect() as conn:
+        async with conn.execute(sql, (from_ts, to_ts)) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows], tier
+
+
 # ---------- Best-share records ----------
 
 # Two scopes are tracked, each materialised as one row in `best_records`:
@@ -604,6 +677,30 @@ async def latest_metric(miner_id: int) -> dict[str, Any] | None:
 #    firmware re-flashes (the truth lives in our DB, not in the miner).
 
 _BEST_SCOPES = ("session", "alltime")
+
+# AxeOS-style firmwares render difficulty strings at 3 significant digits
+# (esp-miner's `_suffix_string` prints "%.3g", after a truncating integer
+# division), so a parsed-back `bestSessionDiff` string can sit up to ~0.6%
+# away from the true share difficulty. forge-os v1.5 switched `bestDiff`
+# to a full-precision number while keeping `bestSessionDiff` a quantized
+# string, which makes the SAME share arrive as two different values (the
+# real case from the field: bestDiff=1882611, bestSessionDiff="1.88M" →
+# 1.88e6). 1% tolerance comfortably covers the quantization error while
+# still rejecting genuine "the firmware knows a higher record than us"
+# gaps, which in practice are far larger.
+BEST_DIFF_QUANT_RTOL = 0.01
+
+
+def _same_si_quantized(a: float, b: float) -> bool:
+    """True when two difficulties render identically at 3 significant digits.
+
+    Used to tell a *display-visible* new record apart from a value that
+    merely gained precision (e.g. the stored 1.88e6 from a quantized SI
+    string being corrected to the firmware's exact 1882611): both format
+    to "1.88M", so notifying "new best 1.88 M (was 1.88 M)" would be
+    noise. Mirrors the firmware's own 3-digit rendering.
+    """
+    return f"{a:.3g}" == f"{b:.3g}"
 
 
 async def update_best_records(
@@ -632,6 +729,13 @@ async def update_best_records(
         value), ``events.alltime_seeded`` is set instead of
         ``events.new_alltime``: the caller treats it as a silent
         catch-up, not a freshly-broken record (no push notification).
+      * ``current_value`` and ``alltime_hint`` that agree within
+        ``BEST_DIFF_QUANT_RTOL`` are treated as the *same share* (the
+        session field is an SI string quantized to 3 significant digits
+        on AxeOS-style firmware, while forge-os v1.5+ reports the hint
+        full-precision); the hint then wins as the stored value and the
+        event counts as ``new_alltime``, unless the bump is invisible at
+        3-digit display resolution (then it's a silent precision seed).
 
     Return shape::
 
@@ -738,9 +842,30 @@ async def update_best_records(
         existing_at = out["alltime"]
         existing_at_value = existing_at["value"] if existing_at else None
 
-        # Path A: live value beats both stored and hint → real new record
-        if cv is not None and (existing_at_value is None or cv > existing_at_value) \
-                and (hint is None or cv >= hint):
+        # Reconcile cv and hint before choosing a path. On firmwares that
+        # report the session best as a quantized SI string but the NVS
+        # all-time as a full-precision number (forge-os v1.5+), a freshly
+        # broken record is the SAME share seen through two encodings:
+        # cv=1.88e6 vs hint=1882611. The old strict `cv >= hint` test sent
+        # exactly those into the silent-seed path, so roughly every record
+        # whose 3-digit rendering rounds DOWN never notified. When the two
+        # values agree within the quantization tolerance we treat them as
+        # one share and let the full-precision hint win.
+        candidate: float | None = None
+        if cv is not None:
+            if hint is None:
+                candidate = cv
+            elif abs(cv - hint) <= hint * BEST_DIFF_QUANT_RTOL:
+                # Same share, two encodings — store the precise one.
+                candidate = hint
+            elif cv >= hint:
+                # Live value genuinely ahead of the firmware's own record
+                # (legacy semantics, e.g. firmware NVS was wiped).
+                candidate = cv
+            # else: hint is genuinely ahead → silent catch-up (Path B).
+
+        # Path A: the (reconciled) live value beats the stored record
+        if candidate is not None and (existing_at_value is None or candidate > existing_at_value):
             await conn.execute(
                 """
                 INSERT INTO best_records (miner_id, scope, value, ts, uptime_at_record)
@@ -750,10 +875,21 @@ async def update_best_records(
                   ts = excluded.ts,
                   uptime_at_record = excluded.uptime_at_record
                 """,
-                (miner_id, "alltime", cv, ts, uptime_s),
+                (miner_id, "alltime", candidate, ts, uptime_s),
             )
-            out["alltime"] = {"value": cv, "ts": ts, "uptime_at_record": uptime_s}
-            out["events"]["new_alltime"] = True
+            out["alltime"] = {"value": candidate, "ts": ts, "uptime_at_record": uptime_s}
+            # Precision-only catch-up guard: if the bump is invisible at
+            # the firmware's 3-significant-digit display resolution, the
+            # stored value is just gaining precision (first poll after a
+            # firmware that switched bestDiff to a raw number), not a
+            # freshly broken record. "New best 1.88 M (was 1.88 M)" is
+            # noise — report it as a seed so no push fires.
+            if existing_at_value is not None and _same_si_quantized(
+                candidate, existing_at_value
+            ):
+                out["events"]["alltime_seeded"] = True
+            else:
+                out["events"]["new_alltime"] = True
 
         # Path B: the hint is ahead of what we have stored (and was not
         # already covered by Path A). Silently catch up.
@@ -1071,6 +1207,59 @@ async def rollup_to_1h(now: int | None = None, lookback_seconds: int = 7200) -> 
         return cur.rowcount or 0
 
 
+async def rollup_ambient_to_1m(now: int | None = None, lookback_seconds: int = 300) -> int:
+    """Aggregate the last few minutes of `ambient_metrics` into the 1m tier.
+
+    Same sliding-window, ``INSERT OR REPLACE`` idempotency as
+    ``rollup_to_1m``, but fleet-wide (no ``miner_id`` grouping) and
+    carrying min/max alongside the average.
+    """
+    n = int(now or now_ts())
+    bucket = 60
+    end = (n // bucket) * bucket  # exclusive: don't include current minute
+    start = end - max(bucket, int(lookback_seconds))
+    sql = f"""
+    INSERT OR REPLACE INTO ambient_metrics_1m (ts, temp_c, temp_min_c, temp_max_c, sample_count)
+    SELECT
+        (ts / {bucket}) * {bucket} AS bucket_ts,
+        AVG(temp_c),
+        MIN(temp_c),
+        MAX(temp_c),
+        COUNT(*)
+    FROM ambient_metrics
+    WHERE ts >= ? AND ts < ?
+    GROUP BY bucket_ts
+    """
+    async with connect() as conn:
+        cur = await conn.execute(sql, (start, end))
+        await conn.commit()
+        return cur.rowcount or 0
+
+
+async def rollup_ambient_to_1h(now: int | None = None, lookback_seconds: int = 7200) -> int:
+    """Aggregate the last few hours of `ambient_metrics_1m` into the 1h tier."""
+    n = int(now or now_ts())
+    bucket = 3600
+    end = (n // bucket) * bucket
+    start = end - max(bucket, int(lookback_seconds))
+    sql = f"""
+    INSERT OR REPLACE INTO ambient_metrics_1h (ts, temp_c, temp_min_c, temp_max_c, sample_count)
+    SELECT
+        (ts / {bucket}) * {bucket} AS bucket_ts,
+        AVG(temp_c),
+        MIN(temp_min_c),
+        MAX(temp_max_c),
+        SUM(sample_count)
+    FROM ambient_metrics_1m
+    WHERE ts >= ? AND ts < ?
+    GROUP BY bucket_ts
+    """
+    async with connect() as conn:
+        cur = await conn.execute(sql, (start, end))
+        await conn.commit()
+        return cur.rowcount or 0
+
+
 # ---------- Tiered retention ----------
 
 async def cleanup_tiered(
@@ -1085,11 +1274,21 @@ async def cleanup_tiered(
     aggregated rows. Order doesn't matter for correctness.
     """
     n = now_ts()
-    deleted = {"metrics": 0, "metrics_1m": 0, "metrics_1h": 0}
+    raw_cutoff = n - max(1, int(retention_raw_hours)) * 3600
+    cut_1m = n - max(1, int(retention_1m_days)) * 86400
+    cut_1h = n - max(1, int(retention_1h_days)) * 86400
+    deleted = {
+        "metrics": 0, "metrics_1m": 0, "metrics_1h": 0,
+        "ambient_metrics": 0, "ambient_metrics_1m": 0, "ambient_metrics_1h": 0,
+    }
     plans = [
-        ("metrics",    n - max(1, int(retention_raw_hours)) * 3600),
-        ("metrics_1m", n - max(1, int(retention_1m_days))  * 86400),
-        ("metrics_1h", n - max(1, int(retention_1h_days))  * 86400),
+        ("metrics",            raw_cutoff),
+        ("metrics_1m",         cut_1m),
+        ("metrics_1h",         cut_1h),
+        # The ambient series shares the same per-tier retention windows.
+        ("ambient_metrics",    raw_cutoff),
+        ("ambient_metrics_1m", cut_1m),
+        ("ambient_metrics_1h", cut_1h),
     ]
     async with connect() as conn:
         for table, cutoff in plans:

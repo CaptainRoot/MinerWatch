@@ -360,6 +360,11 @@ class BitaxeDriver(MinerDriver):
         captured. On restore we fall back to ``"x"`` — fine for solo /
         home pools, which ignore the worker password. This is the one
         field that can't round-trip faithfully on AxeOS.
+
+        ``stratumTLS`` / ``stratumCert`` (forge-os v1.5+) are captured
+        when the firmware reports them and stay ``None`` otherwise, so a
+        restore on TLS-capable firmware is faithful and a restore on
+        older firmware simply doesn't mention the keys.
         """
         data = await self._system_info()
         return PoolConfig(
@@ -367,10 +372,14 @@ class BitaxeDriver(MinerDriver):
             port=_opt_int(data.get("stratumPort")),
             user=data.get("stratumUser"),
             password=None,  # not exposed by AxeOS — restored as "x"
+            tls=_opt_int(data.get("stratumTLS")),
+            cert=data.get("stratumCert"),
             fb_url=data.get("fallbackStratumURL") or data.get("fallbackStratumUrl"),
             fb_port=_opt_int(data.get("fallbackStratumPort")),
             fb_user=data.get("fallbackStratumUser"),
             fb_password=None,
+            fb_tls=_opt_int(data.get("fallbackStratumTLS")),
+            fb_cert=data.get("fallbackStratumCert"),
         )
 
     async def set_pool(self, config: PoolConfig) -> bool:
@@ -385,6 +394,15 @@ class BitaxeDriver(MinerDriver):
             if config.user is not None:
                 payload["stratumUser"] = config.user
             payload["stratumPassword"] = config.password or "x"
+            # TLS round-trip (forge-os v1.5+). None = leave the firmware
+            # value untouched (pre-TLS snapshot / unknown). Repoint
+            # configs carry an explicit 0 so a slot previously set to a
+            # TLS pool can't try TLS against a plain-TCP one. Firmware
+            # without TLS support drops the unknown keys.
+            if config.tls is not None:
+                payload["stratumTLS"] = int(config.tls)
+            if config.cert is not None:
+                payload["stratumCert"] = config.cert
         # Restore the fallback slot too when the snapshot carried one, so
         # revert is faithful for users who had a custom backup pool.
         if config.fb_url is not None:
@@ -395,6 +413,10 @@ class BitaxeDriver(MinerDriver):
             if config.fb_user is not None:
                 payload["fallbackStratumUser"] = config.fb_user
             payload["fallbackStratumPassword"] = config.fb_password or "x"
+            if config.fb_tls is not None:
+                payload["fallbackStratumTLS"] = int(config.fb_tls)
+            if config.fb_cert is not None:
+                payload["fallbackStratumCert"] = config.fb_cert
 
         ok = await self._patch_system(payload)
         if ok:

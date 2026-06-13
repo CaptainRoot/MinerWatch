@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fmtNum } from '@/lib/format';
-import { useMinerMetrics } from '@/api/hooks';
+import { useAmbientHistory, useMinerMetrics } from '@/api/hooks';
 
 interface Props {
   minerId: number;
@@ -43,6 +43,10 @@ export function HistoryCharts({ minerId, family }: Props) {
   const toTs = now;
 
   const { data, isLoading } = useMinerMetrics(minerId, fromTs, toTs);
+  // Room temperature relayed over MQTT, fetched for the same window. It's
+  // fleet-wide (one sensor), so the same series overlays every miner's
+  // Temperature chart. Absent relay → empty points → no extra line drawn.
+  const { data: ambientData } = useAmbientHistory(fromTs, toTs);
 
   const series = useMemo(() => {
     const rows = data?.metrics ?? [];
@@ -92,6 +96,38 @@ export function HistoryCharts({ minerId, family }: Props) {
   const hasReject = useMemo(
     () => series.some((p) => p.rejectPct !== null),
     [series],
+  );
+
+  // Temperature chart dataset: the per-miner chip/VR series merged with the
+  // fleet ambient series on a shared time axis. Both are sampled on the same
+  // poll cadence (raw tier) or bucketed to the same minute/hour boundaries
+  // (rollup tiers), so timestamps align; we still merge by ts defensively so
+  // a cycle present in only one series (e.g. miner offline but room sensor
+  // alive) keeps the other line. Missing values stay null → a gap, never a
+  // fabricated zero.
+  const tempSeries = useMemo(() => {
+    type TPoint = {
+      ts: number;
+      tempChip: number | null;
+      tempVr: number | null;
+      tempAmbient: number | null;
+    };
+    const byTs = new Map<number, TPoint>();
+    for (const p of series) {
+      byTs.set(p.ts, { ts: p.ts, tempChip: p.tempChip, tempVr: p.tempVr, tempAmbient: null });
+    }
+    for (const a of ambientData?.points ?? []) {
+      const ts = a.ts * 1000;
+      const existing = byTs.get(ts);
+      if (existing) existing.tempAmbient = a.temp_c;
+      else byTs.set(ts, { ts, tempChip: null, tempVr: null, tempAmbient: a.temp_c });
+    }
+    return Array.from(byTs.values()).sort((x, y) => x.ts - y.ts);
+  }, [series, ambientData]);
+
+  const hasAmbient = useMemo(
+    () => tempSeries.some((p) => p.tempAmbient !== null),
+    [tempSeries],
   );
 
   const tickFormat = (ts: number) => {
@@ -163,8 +199,13 @@ export function HistoryCharts({ minerId, family }: Props) {
           </LineChart>
         </ChartBlock>
 
-        <ChartBlock title="Temperature" unit="°C" isLoading={isLoading} hasData={!!series.length}>
-          <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+        <ChartBlock
+          title="Temperature"
+          unit="°C"
+          isLoading={isLoading}
+          hasData={!!tempSeries.length}
+        >
+          <LineChart data={tempSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="ts"
@@ -189,10 +230,29 @@ export function HistoryCharts({ minerId, family }: Props) {
                 fontSize: 12,
               }}
               labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
-              formatter={(v: number, name: string) => [`${fmtNum(v, 1)} °C`, name === 'tempChip' ? 'Chip' : vrSeriesLabel]}
+              formatter={(v: number, name: string) => {
+                const label =
+                  name === 'tempChip' ? 'Chip' : name === 'tempVr' ? vrSeriesLabel : 'Room';
+                return [`${fmtNum(v, 1)} °C`, label];
+              }}
             />
             <Line type="monotone" dataKey="tempChip" stroke="#fb923c" strokeWidth={2} dot={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="tempVr" stroke="#facc15" strokeWidth={2} dot={false} isAnimationActive={false} />
+            {/* Room temperature relayed over MQTT — only when the relay has
+                data. Dashed cool-blue to read as "environment, not device",
+                and connectNulls so a brief relay gap doesn't fragment it. */}
+            {hasAmbient && (
+              <Line
+                type="monotone"
+                dataKey="tempAmbient"
+                stroke="#38bdf8"
+                strokeWidth={2}
+                strokeDasharray="4 3"
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
+            )}
           </LineChart>
         </ChartBlock>
 

@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.1] — 2026-06-13
+
+### Added
+
+- **Room temperature overlaid on each miner's History "Temperature" chart.**
+  The ambient value relayed from the optional MQTT sensor — previously only
+  shown live (dashboard card + ESP32 panel) — is now stored as a fleet-wide
+  time-series and drawn as a third, dashed line on every miner's History
+  temperature chart, alongside chip and VR. It is persisted once per poll
+  cycle (when a fresh reading is available) and rolled up into the same
+  1-minute and 1-hour tiers as the per-miner metrics, with matching tiered
+  retention, so the room line lines up with the chip/VR series across the
+  full 1h–30d range selector. New endpoint `GET
+  /api/fleet/ambient_temp/history`. The line appears only when the relay has
+  stored data; setups without an ambient sensor are unaffected.
+
+- **Live shares survive forge-os v1.5 (synthetic share events).** forge-os
+  v1.5 demotes the per-share `asic_result` log line to DEBUG and stock
+  builds compile it out, so the BitForge Nano's live chart went dark after
+  the firmware update. The streamer now reconstructs submitted shares from
+  the pool verdict lines that are still logged at INFO: each
+  accepted/rejected verdict becomes one share event plotted at the pool
+  target (a floor for the real difficulty, marked `estimated` and shown as
+  "≥" in the tooltip). The target is tracked from the vardiff lines plus
+  the REST `stratumDiff`, and when the poller observes a new
+  `bestSessionDiff` the latest synthetic dot is upgraded to the exact
+  difficulty (new `amend` SSE event) and fed to the near-block Hall of
+  Fame. The fallback engages per-stream and automatically; a real
+  `asic_result` line (v1.0 boards, custom builds with DEBUG logs) switches
+  back to the full-fidelity path. Only the below-target cloud is lost on
+  such firmware — the firmware simply never emits it.
+
+### Changed
+
+- **"All miners" is the default live-shares view, on a 10-minute window.**
+  The Live shares page now opens on the fleet-wide chart (tab order
+  matches), and the fleet chart defaults to the 10m range — on a vardiff'd
+  solo pool, shorter windows often looked empty. A previously chosen tab
+  still wins via localStorage.
+
+- **Dashboard fleet KPI relabelled "Avg efficiency".** The efficiency tile
+  at the top of the dashboard is the fleet-wide average (total power ÷
+  total hashrate); the label now reads "Avg efficiency" instead of the bare
+  "Efficiency", so it isn't mistaken for a single-miner figure.
+
+### Fixed
+
+- **Both fans shown for NerdQAxe / NerdOctaxe, with corrected connector
+  labels.** The Hardware tab listed only the primary fan on dual-fan
+  boards; it now shows the second (Aux/VRM) fan as well, matching the
+  Overview tab. The NerdQAxe fan connectors are relabelled to their
+  silkscreen names — M2 (lower) / M1 (upper) instead of C2/C1. NerdOctaxe,
+  wired differently, keeps C2/C1.
+
+- **Best-share notifications died on forge-os v1.5's numeric `bestDiff`.**
+  v1.5 reports `bestDiff` as a full-precision number while
+  `bestSessionDiff` stays an SI string quantized to 3 significant digits,
+  so a freshly broken record arrived as two "different" values (field
+  case: `1882611` vs `"1.88M"`). The strict `live >= hint` test in
+  `update_best_records` then routed every record whose 3-digit rendering
+  rounds down into the silent-seed path — roughly half of all new records
+  never pushed. Values that agree within a 1% quantization tolerance are
+  now treated as the same share, the full-precision number wins as the
+  stored value, and a bump that is invisible at 3-digit display resolution
+  (pure precision catch-up after the firmware switch) stays silent instead
+  of pushing "new best 1.88 M (was 1.88 M)".
+- **v1.5 share-log lines were unparseable even when present.** The target
+  format changed from `of 1497.` to `of 1497.00.` and the old greedy
+  regex captured the sentence dot too, so `float()` raised and the line
+  was silently dropped. The number pattern now owns at most one decimal
+  point (all dialects covered by tests), relevant for custom builds that
+  re-enable the per-share line.
+- **Pool repointing now round-trips forge-os v1.5's stratum TLS flags.**
+  `read_pool_config`/`set_pool` carry `stratumTLS`/`stratumCert` (and the
+  fallback twins): donate-hashrate explicitly writes `tls=0` so a slot
+  previously configured for a TLS pool can't try TLS against the
+  plain-TCP donation pool, and a revert restores the snapshot's own
+  flags. Pre-TLS snapshots leave the firmware values untouched; older
+  firmware drops the unknown keys.
+- **Boards reporting `deviceModel: "invalid"` no longer get renamed.**
+  forge-os reads the model from NVS with the literal default "invalid";
+  a factory-v1.0 Nano OTA'd to v1.5 whose NVS never got the key would
+  have been re-discovered as model "Invalid". The value is now treated
+  as absent and the chiptemp/ASIC fingerprints decide, keeping
+  "BitForge Nano".
+
 ## [1.14.0] — 2026-06-12
 
 ### Added

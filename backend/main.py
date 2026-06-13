@@ -778,6 +778,35 @@ async def api_fleet_ambient_temp() -> dict:
     }
 
 
+@app.get("/api/fleet/ambient_temp/history")
+async def api_fleet_ambient_temp_history(
+    from_ts: int = 0,
+    to_ts: int = 0,
+) -> dict:
+    """Time-series of the relayed ambient (room) temperature.
+
+    Powers the optional third line on each miner's History "Temperature"
+    chart. Same range/tier contract as ``/api/miners/{id}/metrics`` so the
+    frontend can request the identical window and the resolutions line up.
+    Returns ``points`` as ``[{ts, temp_c}, …]``; an empty list simply means
+    the relay was never configured or no value has been stored yet, in
+    which case the frontend draws no ambient line.
+    """
+    import time as _time
+
+    if to_ts == 0:
+        to_ts = int(_time.time())
+    if from_ts == 0:
+        from_ts = to_ts - 24 * 3600
+    rows, tier = await db.ambient_metrics_range(from_ts, to_ts)
+    return {
+        "from_ts": from_ts,
+        "to_ts": to_ts,
+        "tier": tier,
+        "points": rows,
+    }
+
+
 # ---------- umbrelOS desktop widgets ----------
 #
 # JSON consumed by umbreld to render MinerWatch's desktop widgets (see
@@ -873,9 +902,14 @@ async def api_miner_shares_stream(miner_id: int) -> StreamingResponse:
 
     Events:
       - ``snapshot``: {events:[…], stats:{…}} sent once on connect.
-      - ``share``:    {seq, ts, diff, target, submitted} per ASIC result.
+      - ``share``:    {seq, ts, diff, target, submitted, estimated} per
+                      ASIC result. ``estimated`` marks synthetic events
+                      (firmware logs no per-share lines; diff = target).
       - ``verdict``:  {seq, accepted} when the pool grades a submitted
                       share (rare reject → recolour the point red).
+      - ``amend``:    {seq, diff, estimated} when a synthetic event's
+                      difficulty gets upgraded to the exact value the
+                      REST poller observed via a new bestSessionDiff.
     A ``: keepalive`` comment is emitted every 15 s of silence so proxies
     don't time the connection out.
     """

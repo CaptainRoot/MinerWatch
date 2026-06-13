@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { fmtDifficulty, fmtNum, fmtUptime, tempTone } from '@/lib/format';
+import { fmtDifficulty, fmtNum, fmtUptime, nerdFanLabels, tempTone } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { LiveSample, MetricSample, MinerDetailResponse } from '@/lib/types';
 
@@ -155,16 +155,18 @@ export function LiveStats({ data }: Props) {
       });
     });
   } else {
-    // On NerdOctaxe the two fans sit on different connectors: the primary
-    // fan (`fanrpm`) is the CPU/ASIC fan on connector C2 (lower) and the
-    // secondary fan (`fanrpm2`) is the Aux/VRM fan on connector C1 (upper).
-    // Label them by role + connector so they read clearly. On single-fan
-    // miners we keep the original generic label.
+    // On NerdQAxe / NerdOctaxe the two fans sit on different connectors:
+    // the primary fan (`fanrpm`) is the CPU/ASIC fan on the lower connector
+    // and the secondary fan (`fanrpm2`) is the Aux/VRM fan on the upper one.
+    // The connector silkscreen differs by board (NerdQAxe = M2/M1,
+    // NerdOctaxe = C2/C1), so labels come from the shared helper. On
+    // single-fan miners we keep the original generic label.
     const isNerdOctaxeDualFan = isNerdOctaxe && fanRpm2 !== null;
-    const primaryFanLabel = isNerdOctaxeDualFan ? 'CPU fan (C2 lower)' : 'Fan';
+    const fanLabels = nerdFanLabels(data.miner.model);
+    const primaryFanLabel = isNerdOctaxeDualFan ? fanLabels.primaryRole : 'Fan';
     rows.push({
       label: primaryFanLabel,
-      title: isNerdOctaxeDualFan ? 'Connector: C2 (lower)' : undefined,
+      title: isNerdOctaxeDualFan ? fanLabels.primaryConnector : undefined,
       value: (
         <NumberCell
           value={fanRpm !== null && fanRpm !== undefined ? String(fanRpm) : '—'}
@@ -172,16 +174,16 @@ export function LiveStats({ data }: Props) {
         />
       ),
     });
-    // NerdOctaxe second fan (only when populated) — Aux/VRM fan on C1 (upper).
+    // Second fan (only when populated) — Aux/VRM fan on the upper connector.
     if (fanRpm2 !== null && fanRpm2 !== undefined) {
-      // The C1/upper header is PWM-driven (firmware reports `fanspeed2`)
-      // but often has no tachometer feedback, so `fanrpm2` comes back as
-      // 0. That 0 is "no RPM reading", not "fan stopped" — render it as
-      // "—" so it reads as missing data rather than a stalled fan, while
-      // still showing the duty-cycle %.
+      // The upper header is PWM-driven (firmware reports `fanspeed2`) but
+      // often has no tachometer feedback, so `fanrpm2` comes back as 0.
+      // That 0 is "no RPM reading", not "fan stopped" — render it as "—"
+      // so it reads as missing data rather than a stalled fan, while still
+      // showing the duty-cycle %.
       rows.push({
-        label: 'Aux/VRM fan (C1 upper)',
-        title: 'Connector: C1 (upper)',
+        label: fanLabels.secondaryRole,
+        title: fanLabels.secondaryConnector,
         value: (
           <NumberCell
             value={fanRpm2 ? String(fanRpm2) : '—'}

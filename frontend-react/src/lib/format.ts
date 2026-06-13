@@ -98,3 +98,32 @@ export const FAMILY_LABEL: Record<string, string> = {
   braiins: 'Braiins / BMM',
   luxos: 'LuxOS (Antminer)',
 };
+
+// Dual-fan labelling for the NerdQAxe / NerdOctaxe family. Both boards run
+// the same firmware and expose two fan channels — `fanrpm`/`fanspeed`
+// (primary) and `fanrpm2`/`fanspeed2` (secondary) — but they silk-screen
+// the fan connectors differently:
+//   - NerdQAxe  (model contains "qaxe"): M2 (lower) = CPU fan,
+//     M1 (upper) = Aux/VRM fan.
+//   - NerdOctaxe (the rest of the family): C2 (lower) / C1 (upper).
+// The primary channel is the lower / CPU fan, the secondary the upper /
+// Aux-VRM one. Returned strings are shared by the Overview and Hardware
+// tabs so both label the two fans identically.
+export interface NerdFanLabels {
+  primaryRole: string;       // e.g. "CPU fan (M2 lower)"
+  primaryConnector: string;  // tooltip, e.g. "Connector: M2 (lower)"
+  secondaryRole: string;     // e.g. "Aux/VRM fan (M1 upper)"
+  secondaryConnector: string;
+}
+
+export function nerdFanLabels(model: string | null | undefined): NerdFanLabels {
+  const isQaxe = (model ?? '').toLowerCase().includes('qaxe');
+  const lower = isQaxe ? 'M2' : 'C2';
+  const upper = isQaxe ? 'M1' : 'C1';
+  return {
+    primaryRole: `CPU fan (${lower} lower)`,
+    primaryConnector: `Connector: ${lower} (lower)`,
+    secondaryRole: `Aux/VRM fan (${upper} upper)`,
+    secondaryConnector: `Connector: ${upper} (upper)`,
+  };
+}

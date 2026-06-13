@@ -114,6 +114,25 @@ export function useLiveShares(minerId: number | undefined): LiveSharesState {
       }
     });
 
+    // A synthetic event's difficulty got upgraded to the exact value the
+    // backend learned via REST (new bestSessionDiff) — re-place the dot.
+    es.addEventListener('amend', (ev) => {
+      try {
+        const a = JSON.parse((ev as MessageEvent).data) as {
+          seq: number;
+          diff: number;
+          estimated?: boolean;
+        };
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.seq === a.seq ? { ...e, diff: a.diff, estimated: a.estimated ?? false } : e,
+          ),
+        );
+      } catch {
+        /* ignore */
+      }
+    });
+
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
 

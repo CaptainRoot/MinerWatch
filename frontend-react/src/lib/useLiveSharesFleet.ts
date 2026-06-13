@@ -192,6 +192,31 @@ export function useLiveSharesFleet(minerIds: number[]): LiveSharesFleetState {
         }
       });
 
+      // A synthetic event's difficulty got upgraded to the exact value
+      // the backend learned via REST — re-place the dot in this miner's
+      // ring without touching the stats counters.
+      es.addEventListener('amend', (ev) => {
+        try {
+          const a = JSON.parse((ev as MessageEvent).data) as {
+            seq: number;
+            diff: number;
+            estimated?: boolean;
+          };
+          setState((prev) => {
+            const cur = prev.eventsByMiner[id] ?? [];
+            const next = cur.map((e) =>
+              e.seq === a.seq ? { ...e, diff: a.diff, estimated: a.estimated ?? false } : e,
+            );
+            return {
+              ...prev,
+              eventsByMiner: { ...prev.eventsByMiner, [id]: next },
+            };
+          });
+        } catch {
+          /* ignore */
+        }
+      });
+
       es.onopen = () =>
         setState((prev) => ({
           ...prev,

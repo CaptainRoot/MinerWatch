@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { fmtNum, fmtUptime, tempTone, FAMILY_LABEL } from '@/lib/format';
+import { fmtNum, fmtUptime, tempTone, nerdFanLabels, FAMILY_LABEL } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { MinerDetailResponse } from '@/lib/types';
 
@@ -177,6 +177,26 @@ export function HardwareCards({ data }: Props) {
   // ----- Fan & Power -----
   const fanRpm = v('fan_rpm') as number | null;
   const fanPct = v('fan_pct') as number | null;
+  // Second fan — populated only by the NerdQAxe / NerdOctaxe driver (when
+  // the firmware reports a real second fan). When present we show both
+  // fans with the same role + connector labels as the Overview tab,
+  // instead of the single generic "Fan speed / Fan RPM" pair.
+  const fanRpm2 = offline ? null : (ls?.fan_rpm_2 ?? null);
+  const fanPct2 = offline ? null : (ls?.fan_pct_2 ?? null);
+  const dualFan = fanRpm2 !== null && fanRpm2 !== undefined;
+  const fanLabels = nerdFanLabels(miner.model);
+  const fanRows: Row[] = dualFan
+    ? [
+        { label: fanLabels.primaryRole, value: fanReadout(fanRpm, fanPct) },
+        { label: fanLabels.secondaryRole, value: fanReadout(fanRpm2, fanPct2) },
+      ]
+    : [
+        {
+          label: 'Fan speed',
+          value: fanPct !== null && fanPct !== undefined ? `${fmtNum(fanPct, 0)} %` : null,
+        },
+        { label: 'Fan RPM', value: fanRpm ?? null },
+      ];
   const fanMode = miner.fan_mode ?? (raw.autofanspeed === 1 ? 'firmware' : null);
   const fanModeLabel = fanMode === 'manual'
     ? '✋ Manual'
@@ -189,11 +209,7 @@ export function HardwareCards({ data }: Props) {
   const hashrate = v('hashrate_ths') as number | null;
   const eff = power && hashrate ? power / hashrate : null;
   const fanPower: Row[] = [
-    {
-      label: 'Fan speed',
-      value: fanPct !== null && fanPct !== undefined ? `${fmtNum(fanPct, 0)} %` : null,
-    },
-    { label: 'Fan RPM', value: fanRpm ?? null },
+    ...fanRows,
     { label: 'Fan mode', value: fanModeLabel ? <Badge variant="outline">{fanModeLabel}</Badge> : null },
     { label: 'Power', value: power ? `${fmtNum(power, 1)} W` : null },
     {
@@ -302,6 +318,19 @@ function HardwareSection({ title, rows }: SectionProps) {
       </CardContent>
     </Card>
   );
+}
+
+// Combined "RPM · %" readout for one fan, matching the Overview tab. A
+// reported 0 RPM means "no tachometer feedback" on the PWM-only upper
+// header, not a stalled fan, so it renders as "—" while the duty-cycle %
+// still shows. Returns null (→ row dropped) when neither value is present.
+function fanReadout(rpm: number | null, pct: number | null): string | null {
+  const hasRpm = rpm !== null && rpm !== undefined && rpm > 0;
+  const hasPct = pct !== null && pct !== undefined;
+  if (!hasRpm && !hasPct) return null;
+  const rpmStr = hasRpm ? `${rpm} rpm` : '— rpm';
+  const pctStr = hasPct ? ` · ${fmtNum(pct, 0)} %` : '';
+  return `${rpmStr}${pctStr}`;
 }
 
 function Code({ children }: { children: React.ReactNode }) {

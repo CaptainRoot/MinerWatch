@@ -29,6 +29,15 @@ parses that stream, and:
   ``notable_shares`` table so the "near-block Hall of Fame" survives a
   restart.
 
+Synthetic fallback: firmware that compiles the per-share line out
+(forge-os v1.5+ keeps it at DEBUG) still logs the pool verdicts at
+INFO, so each verdict is turned into a synthetic submitted-share event
+plotted at the pool target (see :meth:`LogStreamer._synthesize_share`).
+The poller feeds the REST-only bits in: ``stratumDiff`` seeds the
+target (:meth:`LogStreamer.note_pool_target`) and a new
+``bestSessionDiff`` upgrades the latest synthetic dot to its exact
+difficulty + feeds the Hall of Fame (:meth:`LogStreamer.note_session_best`).
+
 Privacy: the ``stratum_api: tx`` lines contain the user's payout
 address and worker name. We parse-and-discard — only the numeric
 difficulty/target ever leave this module. Raw stratum lines are never
@@ -71,9 +80,19 @@ except Exception:  # noqa: BLE001  pragma: no cover
 # DB); `nerdoctaxe` is the multi-ASIC fork, also AxeOS-derived.
 # `bitforge` (forge-os) exposes the same /api/ws endpoint. Its v1.0
 # factory firmware logs the per-share "diff X of Y" line at INFO like
-# upstream, so live shares work; v1.5/main demoted it to DEBUG, so on
-# that firmware the chart may stay empty — the stream still carries
-# system logs either way.
+# upstream, so live shares work in full. v1.5 demoted that line (and the
+# register reads) to DEBUG, and the stock build compiles DEBUG out
+# entirely — no per-share line can ever reach the WS. For those builds
+# we fall back to SYNTHETIC share events: the pool verdict lines
+# ("message result accepted/rejected") are still logged at INFO, so each
+# one marks exactly one submitted share. We plot it at the pool target
+# (the true difficulty is unknown but >= target by definition), track
+# the target from the vardiff lines still at INFO plus the REST
+# `stratumDiff`, and upgrade the difficulty retroactively when the REST
+# poller observes a new `bestSessionDiff` (see note_session_best). What
+# is genuinely lost on such firmware is only the below-target cloud.
+# The fallback engages per-stream and automatically: a real asic_result
+# line always switches the stream back to the full-fidelity path.
 AXEOS_FAMILIES = {"bitaxe", "nerdoctaxe", "bitforge"}
 
 # Per-miner ring buffer for the live chart. Retention is primarily
@@ -111,20 +130,49 @@ SUBSCRIBER_QUEUE_MAX = 1000
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # "<LEVEL> (<ms_since_boot>) <tag>: <message>"
 _LOG = re.compile(r"^([IWE]) \((\d+)\) ([^:]+): (.*)$")
-# Share-line difficulty, two firmware dialects:
-#   AxeOS / Bitaxe:  "... diff 3035.4 of 1497."   → "<share> of <target>"
-#   NerdQAxe(++):    "... diff 1394.8/3065/241M"  → "<share>/<target>/<best>"
-# We capture the share difficulty + the pool target from either. The
+# Share-line difficulty, three firmware dialects:
+#   AxeOS / Bitaxe:  "... diff 3035.4 of 1497."    → "<share> of <target>"
+#   forge-os v1.5+:  "... diff 3035.4 of 1497.00." → target printed %.2f
+#                    (stock builds keep the line at DEBUG so it normally
+#                    never reaches the WS, but custom builds may re-enable
+#                    it — parse it correctly either way)
+#   NerdQAxe(++):    "... diff 1394.8/3065/241M"   → "<share>/<target>/<best>"
+# We capture the share difficulty + the pool target from either. The number
+# pattern owns at most ONE dot followed by digits, so the sentence-final
+# period is never swallowed: the old greedy `[0-9.]+` captured "1497.00."
+# whole and float() raised, silently dropping every v1.5-format line. The
 # optional SI suffix (k/M/G/T/…) is parsed too, in case a pool runs a
 # high vardiff that the firmware prints in SI form.
-_SHARE = re.compile(r"\bdiff\s+([0-9.]+[kKMGTPE]?)\s*(?:of|/)\s*([0-9.]+[kKMGTPE]?)")
+_SHARE = re.compile(
+    r"\bdiff\s+([0-9]+(?:\.[0-9]+)?[kKMGTPE]?)\s*(?:of|/)\s*([0-9]+(?:\.[0-9]+)?[kKMGTPE]?)"
+)
+
+# Pool/vardiff target lines that survive at INFO on forge-os v1.5+ — the
+# only in-stream target source when the per-share lines are compiled out:
+#   stratum_task: "Set stratum difficulty: 8192.00"
+#   asic_task:    "New pool difficulty 8192.00"
+_TARGET = re.compile(
+    r"\b(?:Set stratum difficulty:|New pool difficulty)\s+([0-9]+(?:\.[0-9]+)?)"
+)
+
+# How far back a REST-observed session-best may retroactively upgrade the
+# most recent synthetic share's difficulty (see note_session_best). Wide
+# enough to bridge one polling cycle plus a slow share cadence; narrow
+# enough not to relabel an unrelated old dot.
+AMEND_WINDOW_S = 90.0
 
 _SI_SUFFIX = {"k": 1e3, "K": 1e3, "M": 1e6, "G": 1e9, "T": 1e12, "P": 1e15, "E": 1e18}
 
 
 def _parse_diff_token(tok: str) -> float:
-    """Parse a difficulty token that may carry an SI suffix ("4.29G")."""
-    tok = tok.strip()
+    """Parse a difficulty token that may carry an SI suffix ("4.29G").
+
+    A trailing period is stripped defensively: log lines end the diff
+    clause with a sentence dot ("of 1497." / "of 1497.00.") and any
+    future capture slip must not turn into a float() ValueError that
+    silently drops the whole share line.
+    """
+    tok = tok.strip().rstrip(".")
     if tok and tok[-1] in _SI_SUFFIX:
         return float(tok[:-1]) * _SI_SUFFIX[tok[-1]]
     return float(tok)
@@ -148,6 +196,12 @@ class ShareEvent:
     pool_target: float
     submitted: bool
     accepted: Optional[bool] = None
+    # True for events synthesized from a verdict line (forge-os v1.5+,
+    # where the per-share log line is compiled out): `share_diff` is the
+    # pool target, i.e. a FLOOR for the real difficulty, not the real
+    # value. Cleared again if note_session_best upgrades the event to
+    # the REST-observed exact difficulty.
+    estimated: bool = False
     # rowid of the persisted Hall-of-Fame row, if this share was notable.
     # Lets us back-fill `accepted` once the stratum result line arrives.
     _notable_rowid: Optional[int] = None
@@ -160,6 +214,7 @@ class ShareEvent:
             "target": self.pool_target,
             "submitted": self.submitted,
             "accepted": self.accepted,
+            "estimated": self.estimated,
         }
 
 
@@ -180,6 +235,14 @@ class MinerStream:
     submitted_total: int = 0
     accepted_total: int = 0
     rejected_total: int = 0
+    # True once a verdict had to be turned into a synthetic share (no
+    # pending event to grade — the firmware logs no per-share lines).
+    # Cleared by any real asic_result line, so a v1.0 board or a custom
+    # build with DEBUG logs re-enabled gets the full-fidelity path back
+    # automatically. Gates note_session_best so firmwares with a real
+    # stream never get duplicate Hall-of-Fame rows.
+    synthetic_mode: bool = False
+    estimated_total: int = 0
     connected: bool = False
     last_event_ts: Optional[float] = None
     started_at: float = field(default_factory=time.time)
@@ -193,6 +256,8 @@ class MinerStream:
             "submitted_total": self.submitted_total,
             "accepted_total": self.accepted_total,
             "rejected_total": self.rejected_total,
+            "synthetic": self.synthetic_mode,
+            "estimated_total": self.estimated_total,
             "last_event_ts": self.last_event_ts,
             "buffered": len(self.buffer),
             "since": self.started_at,
@@ -364,17 +429,36 @@ class LogStreamer:
             except ValueError:
                 uptime_ms = 0
             await self._on_result(stream, uptime_ms, share_diff, pool_target)
+            return
         # Bitaxe logs the verdict under tag "stratum_task"; NerdQAxe uses
         # "stratum task (Pri)" (space + pool marker). Match both dialects.
-        elif tag.startswith("stratum_task") or tag.startswith("stratum task"):
+        if tag.startswith("stratum_task") or tag.startswith("stratum task"):
             if "result accepted" in msg:
                 self._on_verdict(stream, accepted=True)
-            elif "result rejected" in msg:
+                return
+            if "result rejected" in msg:
                 self._on_verdict(stream, accepted=False)
+                return
+        # Vardiff/pool-target lines ("Set stratum difficulty: 8192.00" on
+        # stratum_task, "New pool difficulty 8192.00" on asic_task). They
+        # keep current_target fresh even on firmware that logs no
+        # per-share lines, where the target is the synthetic chart floor.
+        if tag.startswith(("stratum_task", "stratum task", "asic_task")):
+            tm = _TARGET.search(msg)
+            if tm:
+                try:
+                    target = float(tm.group(1))
+                except ValueError:
+                    return
+                if target > 0:
+                    stream.current_target = target
 
     async def _on_result(
         self, stream: MinerStream, uptime_ms: int, share_diff: float, pool_target: float
     ) -> None:
+        # A real per-share line: this firmware logs at full fidelity, so
+        # leave (or return to) the non-synthetic path.
+        stream.synthetic_mode = False
         stream.seq += 1
         stream.results_total += 1
         stream.current_target = pool_target
@@ -391,14 +475,7 @@ class LogStreamer:
             submitted=submitted,
         )
         stream.buffer.append(ev)
-        # Time-based retention on top of the deque's count cap: drop events
-        # older than the chart window so a fast miner keeps the same time
-        # span as a slow one. Expired events are always at the front (ts
-        # ascending), so this is amortised O(1) per result.
-        cutoff = now - RING_BUFFER_SECONDS
-        buf = stream.buffer
-        while buf and buf[0].ts < cutoff:
-            buf.popleft()
+        self._prune_buffer(stream, now)
         if submitted:
             stream.submitted_total += 1
             stream.pending.append(ev)
@@ -421,12 +498,78 @@ class LogStreamer:
 
         self._publish(stream.miner_id, {"type": "share", "data": ev.to_public()})
 
+    @staticmethod
+    def _prune_buffer(stream: MinerStream, now: float) -> None:
+        """Time-based retention on top of the deque's count cap.
+
+        Drop events older than the chart window so a fast miner keeps the
+        same time span as a slow one. Expired events are always at the
+        front (ts ascending), so this is amortised O(1) per event.
+        """
+        cutoff = now - RING_BUFFER_SECONDS
+        buf = stream.buffer
+        while buf and buf[0].ts < cutoff:
+            buf.popleft()
+
+    def _synthesize_share(self, stream: MinerStream, accepted: bool) -> None:
+        """Materialise a submitted share from its pool verdict alone.
+
+        forge-os v1.5 stock builds compile the per-share ``asic_result``
+        line out (demoted to DEBUG), so the only INFO-level trace a
+        submitted share leaves in the log is the "message result
+        accepted/rejected" verdict — exactly one verdict per submission.
+        We synthesize the event at the pool target: the true difficulty
+        is unknown but is >= target by definition of a submission. The
+        same ``share`` + ``verdict`` SSE pair the full-fidelity path
+        emits is published, so subscribers need no special casing;
+        :meth:`note_session_best` may later upgrade the difficulty to
+        the REST-observed exact value.
+        """
+        target = stream.current_target
+        if target is None or target <= 0:
+            # No target known yet (fresh stream: no vardiff line seen and
+            # the REST seed hasn't arrived). Without a floor the dot has
+            # no place on the chart — skip the event; the verdict was
+            # still counted and the poller seeds the target within one
+            # polling cycle.
+            return
+        stream.synthetic_mode = True
+        stream.seq += 1
+        stream.results_total += 1
+        stream.submitted_total += 1
+        stream.estimated_total += 1
+        now = time.time()
+        stream.last_event_ts = now
+        ev = ShareEvent(
+            seq=stream.seq,
+            miner_id=stream.miner_id,
+            ts=now,
+            uptime_ms=0,
+            share_diff=float(target),
+            pool_target=float(target),
+            submitted=True,
+            estimated=True,
+        )
+        stream.buffer.append(ev)
+        self._prune_buffer(stream, now)
+        self._publish(stream.miner_id, {"type": "share", "data": ev.to_public()})
+        # Publish the verdict as its own event, exactly like the real
+        # path, so frontend stats counters keep adding up unchanged.
+        ev.accepted = accepted
+        self._publish(
+            stream.miner_id,
+            {"type": "verdict", "data": {"seq": ev.seq, "accepted": accepted}},
+        )
+
     def _on_verdict(self, stream: MinerStream, accepted: bool) -> None:
         if accepted:
             stream.accepted_total += 1
         else:
             stream.rejected_total += 1
         if not stream.pending:
+            # Nothing awaiting a grade. On firmware that logs no per-share
+            # lines this is the normal case — the verdict IS the share.
+            self._synthesize_share(stream, accepted)
             return
         ev = stream.pending.popleft()
         ev.accepted = accepted
@@ -474,6 +617,92 @@ class LogStreamer:
             subs.discard(q)
             if not subs:
                 self._subscribers.pop(miner_id, None)
+
+    # ---- REST-side feeds (used by the poller) ---------------------------
+
+    def note_pool_target(self, miner_id: int, target: Any) -> None:
+        """Seed/refresh a stream's pool target from the REST poll.
+
+        ``stratumDiff`` in ``/api/system/info`` carries the same value as
+        the vardiff log lines. The REST seed matters right after a stream
+        (re)connects to a firmware that logs no per-share lines: verdicts
+        can arrive before any vardiff line is printed, and without a
+        target they would have to be dropped for lack of a chart floor.
+        """
+        stream = self._streams.get(miner_id)
+        if stream is None:
+            return
+        try:
+            value = float(target) if target is not None else None
+        except (TypeError, ValueError):
+            return
+        if value is not None and value > 0:
+            stream.current_target = value
+
+    async def note_session_best(
+        self, miner_id: int, value: float, ts: int | None = None
+    ) -> None:
+        """Upgrade synthetic share data with a REST-observed session best.
+
+        On firmware whose per-share lines are compiled out, the exact
+        difficulty of a high share is visible only to the REST poller via
+        ``bestSessionDiff``. When the poller records a NEW session best
+        for a miner whose stream is running synthetic (verdict-derived)
+        events, two things happen:
+
+        * the most recent synthetic event inside :data:`AMEND_WINDOW_S`
+          is upgraded from the target floor to the real difficulty, and
+          an ``amend`` SSE event re-places the dot on live charts (on a
+          vardiff'd solo pool shares are sparse, so "the most recent
+          submission" is almost always the record-setter);
+        * the share is persisted to the Hall of Fame when it clears
+          :data:`NOTABLE_THRESHOLD`. This is a PARTIAL restore of that
+          feature: only session-maximum shares leave a REST trace — a 2M
+          share found while the session best already sits at 3M stays
+          invisible.
+
+        No-op for streams not in synthetic mode, so firmwares with a real
+        per-share stream never get duplicate Hall-of-Fame rows.
+        """
+        stream = self._streams.get(miner_id)
+        if stream is None or not stream.synthetic_mode:
+            return
+        try:
+            diff = float(value)
+        except (TypeError, ValueError):
+            return
+        if diff <= 0:
+            return
+        now = time.time()
+        ev: Optional[ShareEvent] = None
+        for cand in reversed(stream.buffer):
+            if cand.estimated and cand.submitted:
+                ev = cand
+                break
+        if ev is not None and (now - ev.ts) <= AMEND_WINDOW_S and diff > ev.share_diff:
+            ev.share_diff = diff
+            ev.estimated = False
+            self._publish(
+                miner_id,
+                {"type": "amend", "data": {"seq": ev.seq, "diff": diff, "estimated": False}},
+            )
+        else:
+            ev = None
+        if diff >= NOTABLE_THRESHOLD:
+            try:
+                rowid = await db.insert_notable_share(
+                    miner_id=miner_id,
+                    ts=int(ts or now),
+                    share_difficulty=diff,
+                    pool_target=stream.current_target,
+                    keep_per_miner=NOTABLE_KEEP_PER_MINER,
+                )
+                # The amended event may already know the pool's verdict
+                # (its synthetic verdict was published at creation time).
+                if ev is not None and ev.accepted is not None:
+                    await db.set_notable_share_accepted(rowid, ev.accepted)
+            except Exception:  # noqa: BLE001
+                log.exception("failed to persist notable share for %s", miner_id)
 
     # ---- read helpers (used by the API) --------------------------------
 

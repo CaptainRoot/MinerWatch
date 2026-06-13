@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type {
   AlertsResponse,
+  AmbientHistoryResponse,
   AmbientTemp,
   AuthStatus,
   BestRecordsResponse,
@@ -98,6 +99,24 @@ export function useMinerMetrics(id: number | undefined, fromTs: number, toTs: nu
       ),
     // Metric ranges are bigger payloads (up to 30 days of 1-min rollups)
     // so we keep them around longer than fleet polling.
+    staleTime: 60_000,
+  });
+}
+
+// Stored ambient (room) temperature series for the same window as the
+// per-miner metrics, so the History "Temperature" chart can overlay it.
+// Same staleTime as useMinerMetrics — these are range payloads, not the
+// live 5s snapshot (that's useAmbientTemp). `enabled` mirrors the metrics
+// hook so we don't fire a request for an inverted range.
+export function useAmbientHistory(fromTs: number, toTs: number) {
+  return useQuery({
+    enabled: fromTs < toTs,
+    queryKey: ['ambient-history', fromTs, toTs],
+    queryFn: ({ signal }) =>
+      api<AmbientHistoryResponse>(
+        `/api/fleet/ambient_temp/history?from_ts=${fromTs}&to_ts=${toTs}`,
+        { signal },
+      ),
     staleTime: 60_000,
   });
 }
