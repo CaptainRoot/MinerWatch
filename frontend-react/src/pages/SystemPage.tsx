@@ -59,7 +59,7 @@ export function SystemPage() {
     );
   }
 
-  if (!info?.is_raspberry) {
+  if (!info?.supported) {
     return (
       <Card>
         <CardHeader>
@@ -68,10 +68,11 @@ export function SystemPage() {
               <Server className="h-5 w-5" />
             </div>
             <div>
-              <CardTitle>Only available on Raspberry Pi</CardTitle>
+              <CardTitle>Host metrics aren't available here</CardTitle>
               <CardDescription>
-                The System page reads CPU temperature, throttling state and the host fan via
-                Pi-specific interfaces.
+                The System page needs a Linux host that exposes hardware sensors — a CPU
+                temperature reading or a fan, as on a Raspberry Pi or another single-board
+                computer. This host doesn't, so there's nothing to show.
               </CardDescription>
             </div>
           </div>

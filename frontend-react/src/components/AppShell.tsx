@@ -20,7 +20,7 @@ import {
 
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/useTheme';
-import { useUpdateCheck } from '@/api/hooks';
+import { useSystemInfo, useUpdateCheck } from '@/api/hooks';
 import { SecurityBanner } from '@/components/SecurityBanner';
 import { WhatsNewDialog } from '@/components/WhatsNewDialog';
 
@@ -67,9 +67,13 @@ type NavItem = LinkNavItem | ActionNavItem;
 interface NavListProps {
   onNavigate?: () => void;
   updateAvailable: boolean;
+  /** Host metrics page is only listed when the backend reports it's
+   *  worth showing (Linux + real sensors). Hidden on macOS / a
+   *  locked-down container. */
+  systemSupported: boolean;
 }
 
-function NavList({ onNavigate, updateAvailable }: NavListProps) {
+function NavList({ onNavigate, updateAvailable, systemSupported }: NavListProps) {
   const items: NavItem[] = [
     {
       kind: 'link',
@@ -164,9 +168,15 @@ function NavList({ onNavigate, updateAvailable }: NavListProps) {
     </>
   );
 
+  // Hide the System entry unless the backend says this host has metrics
+  // worth showing (Linux + real sensors). Everything else is always shown.
+  const visibleItems = items.filter(
+    (item) => systemSupported || !(item.kind === 'link' && item.to === '/system'),
+  );
+
   return (
     <nav className="flex-1 space-y-1">
-      {items.map((item) => {
+      {visibleItems.map((item) => {
         if (item.kind === 'link') {
           return (
             <NavLink
@@ -291,6 +301,11 @@ export function AppShell() {
   const updateAvailable = Boolean(updateInfo?.available);
   const version = updateInfo?.current;
 
+  // Static host info (cached, no polling). Drives whether the "System"
+  // entry is listed at all.
+  const { data: systemInfo } = useSystemInfo();
+  const systemSupported = Boolean(systemInfo?.supported);
+
   // Close the mobile drawer whenever the route changes — otherwise the
   // user taps a link and the drawer stays open over the new page.
   useEffect(() => {
@@ -305,7 +320,7 @@ export function AppShell() {
           <Brand />
           <ThemeToggle />
         </div>
-        <NavList updateAvailable={updateAvailable} />
+        <NavList updateAvailable={updateAvailable} systemSupported={systemSupported} />
         <Footer version={version} />
       </aside>
 
@@ -363,6 +378,7 @@ export function AppShell() {
             <NavList
               onNavigate={() => setMobileOpen(false)}
               updateAvailable={updateAvailable}
+              systemSupported={systemSupported}
             />
             <Footer version={version} />
           </DialogPrimitive.Content>

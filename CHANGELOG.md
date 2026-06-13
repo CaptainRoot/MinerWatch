@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-06-13
+
 ### Added
 
 - **Customizable dashboard layout.** The main dashboard's movable cards —
@@ -26,6 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Author credit in the sidebar footer.** The sidebar and mobile-drawer footer
   now show a "₿uilt by Lenti" link — opening the author's X profile (@imlenti)
   in a new tab — above the existing version and "No cloud · AGPL-3.0" lines.
+
+### Changed
+
+- **System page is shown on any sensor-capable Linux host, not just Raspberry
+  Pi.** The "System" sidebar entry and page now appear whenever the host is
+  Linux and exposes at least one hardware signal — a CPU temperature sensor
+  (`/sys/class/thermal` or `vcgencmd`) or a discoverable fan — instead of being
+  gated on Raspberry Pi detection. On macOS or a locked-down container (where
+  `/sys` isn't exposed) the entry stays hidden, so no misleading host data
+  (e.g. a container's overlay filesystem reported as "disk") is shown. The
+  Pi-only readings (core voltage, throttling flags via `vcgencmd`) still appear
+  only on a Pi; CPU, RAM, disk, temperature and fan work wherever the sensors
+  exist. New `supported` flag on `GET /api/system/info`.
 
 ## [1.14.1] — 2026-06-13
 

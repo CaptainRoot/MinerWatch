@@ -63,6 +63,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -86,6 +87,11 @@ class HostInfo:
     """Static, immutable-for-this-process info about the host."""
 
     is_raspberry: bool = False
+    # Whether the System page is worth showing on this host (see
+    # _detect_host). Distinct from is_raspberry: any Linux host with a
+    # real hardware signal qualifies, while is_raspberry stays reserved
+    # for the Pi-only readings (core voltage, throttling).
+    supported: bool = False
     model: Optional[str] = None
     kernel: Optional[str] = None
     ram_total_bytes: Optional[int] = None
@@ -232,6 +238,26 @@ def _detect_host() -> HostInfo:
     info.fan_cooling_path = cooling_path
     info.fan_cooling_max_state = max_state
     info.fan_rpm_path = rpm_path
+
+    # Is the System page worth showing at all? It's a host hardware /
+    # thermal page, so we require Linux plus at least one real hardware
+    # signal: the Pi firmware helper, a readable CPU thermal zone, or a
+    # discoverable fan. On macOS or a locked-down container (no /sys this
+    # all stays absent) the flag is False, so the sidebar hides the entry
+    # and we never show misleading data (e.g. a container's overlay
+    # filesystem reported as "disk").
+    #
+    # The thermal zone is probed inline via _read_file because
+    # _read_cpu_temp_sysfs is defined later in the module and isn't
+    # callable yet when _detect_host runs at import time.
+    is_linux = sys.platform.startswith("linux")
+    has_thermal = _read_file("/sys/class/thermal/thermal_zone0/temp") is not None
+    info.supported = is_linux and (
+        info.has_vcgencmd
+        or has_thermal
+        or info.fan_cooling_path is not None
+        or info.fan_rpm_path is not None
+    )
 
     return info
 
@@ -491,6 +517,7 @@ def host_info() -> Dict[str, object]:
     """Static info — model, kernel, totals, what features are available."""
     return {
         "is_raspberry": HOST.is_raspberry,
+        "supported": HOST.supported,
         "model": HOST.model,
         "kernel": HOST.kernel,
         "ram_total_bytes": HOST.ram_total_bytes,

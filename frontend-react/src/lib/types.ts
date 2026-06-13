@@ -693,6 +693,11 @@ export interface GuardianStatusResponse {
 
 export interface SystemInfo {
   is_raspberry: boolean;
+  // Whether the System page is worth showing on this host (Linux + a
+  // real hardware signal: CPU temp sensor, vcgencmd, or a fan). Drives
+  // both the sidebar entry and the page; see useDashboardLayout's sibling
+  // reasoning in system_info.py.
+  supported: boolean;
   model: string | null;
   kernel: string | null;
   ram_total_bytes: number | null;
