@@ -1187,6 +1187,22 @@ def _capabilities(family: str) -> dict:
     }
 
 
+def _miner_reports_pause(miner_id: int) -> bool:
+    """Per-device pause capability probe.
+
+    The static ``can_pause`` flag says the *family* can pause; the BitForge
+    family also needs a per-device check, since only a custom forge-os build
+    exposes the endpoints. We treat the live ``miningPaused`` field (surfaced
+    as ``mining_paused``) as that probe, matching the frontend's
+    ``supportsStandby`` gate. Returns True when there's no sample yet
+    (best-effort: let the firmware be the final arbiter of the POST).
+    """
+    sample = poller.last_results.get(miner_id)
+    if sample is None:
+        return True
+    return sample.mining_paused is not None
+
+
 # ---------- API: miner controls ----------
 
 class FanPayload(BaseModel):
@@ -1279,6 +1295,11 @@ async def api_pause(miner_id: int) -> dict:
     miner, drv = await _resolve_driver(miner_id)
     if not drv.can_pause:
         raise HTTPException(400, f"family {miner['family']} does not support pause via API")
+    if not _miner_reports_pause(miner_id):
+        raise HTTPException(
+            400,
+            f"family {miner['family']} firmware does not expose pause (no miningPaused field)",
+        )
     ok = await drv.pause()
     if not ok:
         raise HTTPException(502, "the miner rejected the command")
@@ -1291,6 +1312,11 @@ async def api_resume(miner_id: int) -> dict:
     miner, drv = await _resolve_driver(miner_id)
     if not drv.can_pause:
         raise HTTPException(400, f"family {miner['family']} does not support resume via API")
+    if not _miner_reports_pause(miner_id):
+        raise HTTPException(
+            400,
+            f"family {miner['family']} firmware does not expose resume (no miningPaused field)",
+        )
     ok = await drv.resume()
     if not ok:
         raise HTTPException(502, "the miner rejected the command")

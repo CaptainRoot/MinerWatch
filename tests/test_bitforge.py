@@ -241,6 +241,26 @@ def test_parse_fields_forge_os_does_not_expose():
     assert s.hw_errors is None
 
 
+def test_parse_hashrate_spike_clamped_to_none():
+    """After a resume the firmware's estimator spikes far above the
+    theoretical max (freq x small_core_count x asic_count) and decays over
+    minutes — a real BitForge resume was seen at ~9.5e8 GH/s. That transient
+    is not a reading: the driver drops it (None) so it never reaches the DB,
+    the fleet totals, the efficiency figure or the Guardian. The efficiency
+    must go None too rather than being computed from a bogus hashrate."""
+    s = _parse(hashRate=953109632.0)
+    assert s.hashrate_ths is None
+    assert s.efficiency_w_per_ths is None
+
+
+def test_parse_hashrate_at_theoretical_is_kept():
+    """A plausible reading near the theoretical max is untouched (the clamp
+    only fires well above it, so it can't drop legitimate values). 636 MHz x
+    2040 cores x 2 ASICs ~= 2.594 TH/s."""
+    s = _parse(hashRate=2594.0, frequency=636)
+    assert s.hashrate_ths == 2.594
+
+
 # ---- _parse: real v1.0 factory-firmware payload --------------------
 
 

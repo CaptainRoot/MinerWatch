@@ -30,6 +30,11 @@ export function MinerCard({ miner }: Props) {
   // gate specifically on "offline" — not "pending" — so a freshly loaded
   // page before the first poll still shows the last known metrics.
   const offline = status === 'offline';
+  // In standby the firmware keeps INA260 power/current/voltage, VR temp and
+  // fan RPM live (real idle ~1.5 W) and zeroes the ASIC chip temps, which the
+  // driver maps to None → "—". So there's nothing stale to blank: live values
+  // are shown, chip temp self-blanks. (Pre-fix6 firmware froze them and we
+  // blanked here — no longer needed.)
 
   const familyLabel = FAMILY_LABEL[miner.family] ?? miner.family;
 

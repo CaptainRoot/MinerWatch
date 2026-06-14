@@ -26,14 +26,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `POST /api/miners/{id}/control/pause|resume|shutdown`, `pause` / `shutdown`
   capability flags, and a `mining_paused` field on the live sample and the fleet
   list. A standby miner is skipped by the Guardian co-tuner and does not trip
-  offline / zero-hashrate alerts. In the UI: a "Standby" badge on the miner
-  page, a confirmation banner after pausing or resuming (the command is sent
-  immediately and takes ~15–30s to take effect), and a "standby" state shown in
-  place of "online" on the dashboard cards. BitForge (forge-os) is not yet
-  supported — its firmware exposes no standby endpoint — so the button stays
-  hidden there.
+  offline / zero-hashrate alerts. In the UI the control is a
+  four-state machine — Mining, Pausing, Paused, Resuming — that polls the miner
+  to completion instead of trusting the immediate command response: a pause is
+  confirmed once hashing actually stops, a resume once the first new share is
+  accepted (the firmware's reported hashrate is unreliable for a while after an
+  ASIC re-init, so it is deliberately not used as the resume signal). A
+  "Standby" badge shows on the miner page and a "standby" state replaces
+  "online" on the dashboard cards. BitForge (forge-os) is now supported on
+  firmware builds that add the endpoints — stock forge-os still has none — with
+  the capability detected per device from the `miningPaused` field in
+  `/api/system/info`, so a stock board keeps the button hidden while a custom
+  build that exposes pause/resume gets it.
 
 ### Fixed
+
+- **An implausible hashrate right after a resume or restart is dropped.**
+  AxeOS-family firmwares re-seed their hashrate estimator when the ASIC chain
+  re-initialises (resuming from standby, or a restart) and for a while report a
+  wildly inflated value that decays over minutes — a BitForge resume was
+  observed spiking to hundreds of PH/s. MinerWatch now treats any reading above
+  three times the chip's theoretical maximum (frequency × cores × ASICs) as a
+  transient artefact and drops it, so it never reaches the time-series database,
+  the fleet hashrate total, the efficiency figure or the Guardian co-tuner; the
+  value returns on its own once the estimator settles.
 
 - **Live shares keep working on axeOS 2.14.** The per-share log parser now
   reads a pool target printed in scientific notation: axeOS 2.14 switched the

@@ -19,9 +19,16 @@ export function LiveStats({ data }: Props) {
   // Prefer the live poller verdict: if the most recent poll says the
   // miner is offline, treat it as offline even when the persisted
   // last_status is momentarily stale.
+  // In standby the controller is still reachable, but the firmware freezes
+  // temp / power / VR at their pre-pause values (only hashrate→0 and the
+  // paused flag stay live), so we surface a distinct "standby" status and
+  // blank the frozen thermals/power below.
+  const paused = ls?.mining_paused === true;
   const status = ls?.online === false
     ? 'offline'
-    : data.miner.last_status ?? (data.live_sample?.online ? 'online' : 'unknown');
+    : paused
+      ? 'standby'
+      : data.miner.last_status ?? (data.live_sample?.online ? 'online' : 'unknown');
   const error = ls?.error ?? null;
 
   // When offline we have no fresh readings, so blank every live metric
@@ -42,6 +49,9 @@ export function LiveStats({ data }: Props) {
   const vrLabel = family === 'canaan' ? 'Air outlet temp' : 'Temp VR';
 
   const hashrate = v('hashrate_ths') as number | null;
+  // In standby fix6 keeps power / VR / current live (real idle values) and
+  // zeroes the ASIC chip temps, which the driver maps to None → "—". So we
+  // show the live readings as-is; nothing to blank here.
   const power = v('power_w') as number | null;
   const tempChip = v('temp_chip_c') as number | null;
   const tempVr = v('temp_vr_c') as number | null;
@@ -348,6 +358,7 @@ function StatusCell({ status, error }: { status: string; error?: string }) {
   const colour =
     status === 'online' ? 'text-emerald-400'
     : status === 'offline' ? 'text-destructive'
+    : status === 'standby' ? 'text-amber-500'
     : 'text-muted-foreground';
   return (
     <span className={colour}>

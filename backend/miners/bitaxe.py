@@ -24,6 +24,17 @@ from .base import (
 )
 
 
+# Upper plausibility bound for a reported hashrate, as a multiple of the
+# chip's theoretical maximum (freq x small_core_count x asic_count). AxeOS
+# family firmwares re-seed their hashrate estimator on an ASIC re-init
+# (resume from pause, or a restart) and briefly report absurd values — a
+# BitForge resume was observed spiking to ~9.5e8 GH/s (hundreds of PH/s)
+# and decaying over minutes. Anything above this bound is that transient,
+# not a real reading, so we drop it (None) to keep it out of the DB, the
+# fleet totals, the efficiency figure and the Guardian co-tuner.
+HASHRATE_SANITY_FACTOR = 3.0
+
+
 class BitaxeDriver(MinerDriver):
     family = "bitaxe"
     DEFAULT_PORT = 80
@@ -96,10 +107,6 @@ class BitaxeDriver(MinerDriver):
         hashrate_ths = self._ths(data.get("hashRate"))
         power_w = _opt_float(data.get("power"))
 
-        eff = None
-        if hashrate_ths and power_w and hashrate_ths > 0:
-            eff = round(power_w / hashrate_ths, 2)
-
         # Bitaxe exposes temp (chip sensor 1) and vrTemp (voltage
         # regulator). Multi-ASIC boards like the SupraHex (6× BM1368) add
         # a second on-board chip sensor as temp2; single-ASIC boards omit
@@ -143,6 +150,22 @@ class BitaxeDriver(MinerDriver):
         # Small cores per ASIC — used by the Guardian to compute the theoretical
         # hashrate for a frequency. Always present on AxeOS /api/system/info.
         small_core_count = _opt_int(data.get("smallCoreCount"))
+
+        # Hashrate plausibility clamp. Drop an absurd reading (the firmware's
+        # estimator spiking after an ASIC re-init — see HASHRATE_SANITY_FACTOR)
+        # using the theoretical max for the live frequency. When freq/cores/
+        # asic are unknown we keep the value rather than risk dropping a real
+        # one. Done here (after asic/core counts are known) so the efficiency
+        # below is derived from a sane hashrate.
+        if hashrate_ths is not None and freq_mhz and small_core_count and asic_count:
+            theoretical_ths = freq_mhz * small_core_count * asic_count / 1e6
+            if hashrate_ths > theoretical_ths * HASHRATE_SANITY_FACTOR:
+                hashrate_ths = None
+
+        eff = None
+        if hashrate_ths and power_w and hashrate_ths > 0:
+            eff = round(power_w / hashrate_ths, 2)
+
         # Firmware's own theoretical hashrate (GH/s) + error %, PSU input voltage
         # and power ceiling — used by the Guardian's validity test and the
         # co-tuner's safety cutoffs.

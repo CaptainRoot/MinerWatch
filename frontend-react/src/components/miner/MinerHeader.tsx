@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Pause, Play, Power, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -33,11 +34,21 @@ export function MinerHeader({ data }: Props) {
   const resume = useResumeMiner();
   const shutdown = useShutdownMiner();
   const remove = useDeleteMiner();
+  const qc = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
   const [standbyOpen, setStandbyOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // In-flight Standby/Resume transition. The BitForge ASIC ramps for ~10s
+  // each way and the firmware re-seeds its hashrate estimator on resume, so
+  // we can't trust the POST response or the raw hashrate to mark the
+  // transition done. We overlay a local phase (pausing/resuming) on top of
+  // the firmware-reported mining_paused, poll faster while it runs, and
+  // resolve it from the live sample (or a deadline).
+  const [phase, setPhase] = useState<'idle' | 'pausing' | 'resuming'>('idle');
+  const phaseDeadlineRef = useRef(0);
+  const resumeAcceptedBaselineRef = useRef<number | null>(null);
 
   const { miner } = data;
   // Two firmware paths to the same "Standby" idea:
@@ -46,13 +57,24 @@ export function MinerHeader({ data }: Props) {
   const canPause = data.capabilities?.pause ?? false;
   const canShutdown = data.capabilities?.shutdown ?? false;
   // Firmware-level gate: only show Standby when the miner actually reports
-  // its stopped-state field (AxeOS `miningPaused` / NerdQAxe `shutdown`),
-  // surfaced by the backend as mining_paused. On firmware without it the
-  // value is null → hide the button instead of offering a control the
-  // firmware would 404.
+  // its stopped-state field (AxeOS/forge-os `miningPaused` / NerdQAxe
+  // `shutdown`), surfaced by the backend as mining_paused. On firmware
+  // without it the value is null → hide the button instead of offering a
+  // control the firmware would 404.
   const supportsStandby =
     (canPause || canShutdown) && data.live_sample?.mining_paused != null;
-  const paused = data.live_sample?.mining_paused === true;
+  const firmwarePaused = data.live_sample?.mining_paused === true;
+  const liveHashrate = data.live_sample?.hashrate_ths ?? null;
+  const liveAccepted = data.live_sample?.accepted ?? null;
+  // Four-state view: an in-flight transition wins over the firmware flag.
+  const standbyState: 'mining' | 'pausing' | 'paused' | 'resuming' =
+    phase === 'pausing'
+      ? 'pausing'
+      : phase === 'resuming'
+        ? 'resuming'
+        : firmwarePaused
+          ? 'paused'
+          : 'mining';
   const standbyPending = canPause ? pause.isPending : shutdown.isPending;
   const resumePending = canPause ? resume.isPending : restart.isPending;
   const familyLabel = FAMILY_LABEL[miner.family] ?? miner.family;
@@ -70,6 +92,54 @@ export function MinerHeader({ data }: Props) {
     return () => clearTimeout(t);
   }, [notice]);
 
+  // Poll the detail faster while a transition is in flight so the badge
+  // resolves close to real time (the standard cadence is 5s).
+  useEffect(() => {
+    if (phase === 'idle') return;
+    const iv = setInterval(() => {
+      qc.invalidateQueries({ queryKey: ['miner', miner.id] });
+    }, 1500);
+    return () => clearInterval(iv);
+  }, [phase, miner.id, qc]);
+
+  // Resolve the transition from the live sample.
+  //  - Pausing is done once the firmware confirms paused AND hashing has
+  //    stopped (hashrate ~0; the backend nulls the post-resume spike, so a
+  //    null reading also counts as "not hashing").
+  //  - Resuming is done once the firmware clears the paused flag AND a new
+  //    share has been accepted — the only trustworthy "really mining again"
+  //    signal, since the raw hashrate is garbage for a while after re-init.
+  useEffect(() => {
+    if (phase === 'pausing') {
+      if (firmwarePaused && (liveHashrate == null || liveHashrate <= 0.05)) {
+        setPhase('idle');
+      }
+    } else if (phase === 'resuming') {
+      const base = resumeAcceptedBaselineRef.current;
+      const newShare = liveAccepted != null && base != null && liveAccepted > base;
+      if (!firmwarePaused && newShare) {
+        setPhase('idle');
+      }
+    }
+  }, [phase, firmwarePaused, liveHashrate, liveAccepted]);
+
+  // Safety net: never get stuck in a transition. Resolve at the deadline
+  // even if the confirming signal never arrives (slow pool, dropped poll).
+  useEffect(() => {
+    if (phase === 'idle') return;
+    const pendingPhase = phase;
+    const ms = Math.max(0, phaseDeadlineRef.current - Date.now());
+    const t = setTimeout(() => {
+      setPhase('idle');
+      setNotice(
+        pendingPhase === 'pausing'
+          ? `${miner.name}: pause requested but not confirmed in time — it may still be ramping down. Re-check in a moment.`
+          : `${miner.name}: resume sent and accepted — the hashrate can take up to a minute to settle to a real value.`,
+      );
+    }, ms);
+    return () => clearTimeout(t);
+  }, [phase, miner.name]);
+
   async function doRestart() {
     setError(null);
     try {
@@ -85,9 +155,14 @@ export function MinerHeader({ data }: Props) {
     try {
       await (canPause ? pause : shutdown).mutateAsync(miner.id);
       setStandbyOpen(false);
-      setNotice(
-        `Standby command sent — ${miner.name} will stop within ~15–30s. The Standby badge appears once it confirms.`,
-      );
+      setNotice(null);
+      // AxeOS/forge-os has a soft pause whose ramp we can track to "Paused".
+      // NerdQAxe shutdown has no live ramp to watch — its `shutdown` flag
+      // just flips — so we don't drive a "pausing" phase for it.
+      if (canPause) {
+        phaseDeadlineRef.current = Date.now() + 20_000;
+        setPhase('pausing');
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
     }
@@ -96,13 +171,20 @@ export function MinerHeader({ data }: Props) {
   async function doResume() {
     setError(null);
     try {
-      // AxeOS has a soft resume; NerdQAxe resumes only via a restart.
+      // AxeOS/forge-os has a soft resume; NerdQAxe resumes only via a restart.
+      // Capture the accepted-shares baseline first so the resuming phase can
+      // detect the first new share (the trustworthy "really mining" signal).
+      resumeAcceptedBaselineRef.current = data.live_sample?.accepted ?? null;
       await (canPause ? resume : restart).mutateAsync(miner.id);
-      setNotice(
-        canPause
-          ? `Resume command sent — ${miner.name} will start hashing again within ~15–30s.`
-          : `Resume command sent — ${miner.name} is restarting and will be back within ~30s.`,
-      );
+      setNotice(null);
+      if (canPause) {
+        phaseDeadlineRef.current = Date.now() + 35_000;
+        setPhase('resuming');
+      } else {
+        setNotice(
+          `Resume command sent — ${miner.name} is restarting and will be back within ~30s.`,
+        );
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
     }
@@ -130,9 +212,13 @@ export function MinerHeader({ data }: Props) {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
               {miner.name}
-              {paused && (
+              {standbyState !== 'mining' && (
                 <span className="ml-2 inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 align-middle text-xs font-medium text-amber-600">
-                  Standby
+                  {standbyState === 'pausing'
+                    ? 'Pausing…'
+                    : standbyState === 'resuming'
+                      ? 'Resuming…'
+                      : 'Standby'}
                 </span>
               )}
             </h1>
@@ -143,12 +229,28 @@ export function MinerHeader({ data }: Props) {
         </div>
         <div className="flex flex-wrap gap-2">
           {supportsStandby &&
-            (paused ? (
+            (standbyState === 'pausing' || standbyState === 'resuming' ? (
+              <Button variant="subtle" disabled>
+                {standbyState === 'pausing' ? (
+                  <>
+                    <Pause className="h-4 w-4" /> Pausing…
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4" /> Resuming…
+                  </>
+                )}
+              </Button>
+            ) : standbyState === 'paused' ? (
               <Button variant="subtle" onClick={doResume} disabled={resumePending}>
                 <Play className="h-4 w-4" /> {resumePending ? 'Resuming…' : 'Resume'}
               </Button>
             ) : (
-              <Button variant="subtle" onClick={() => setStandbyOpen(true)}>
+              <Button
+                variant="subtle"
+                onClick={() => setStandbyOpen(true)}
+                disabled={standbyPending}
+              >
                 <Pause className="h-4 w-4" /> Standby
               </Button>
             ))}

@@ -59,12 +59,16 @@ class BitForgeDriver(BitaxeDriver):
     """
 
     family = "bitforge"
-    # forge-os is forked from an older AxeOS and does NOT expose
-    # /api/system/pause + /resume (verified against WantClue/forge-os).
-    # Keep Standby off until it's added upstream; otherwise it inherits
-    # BitaxeDriver.can_pause = True and would offer a control the firmware
-    # rejects.
-    can_pause = False
+    # Pause/resume is advertised for the family but gated per-device at
+    # runtime. Stock forge-os does NOT expose POST /api/system/pause +
+    # /resume (verified against the WantClue/forge-os source), while a custom
+    # build can (e.g. forge-os v1.5-apfix4-pause-resume). The live capability
+    # probe is the presence of the ``miningPaused`` field in
+    # /api/system/info, surfaced as ``mining_paused``: the control endpoints
+    # (see backend/main.py :func:`_miner_reports_pause`) and the frontend
+    # ``supportsStandby`` gate only act when it is non-null, so a stock board
+    # never gets a control the firmware would reject.
+    can_pause = True
 
     def _parse(self, data: dict[str, Any]):
         # Start from the Bitaxe parser for all the shared field
