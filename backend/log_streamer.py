@@ -130,22 +130,23 @@ SUBSCRIBER_QUEUE_MAX = 1000
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # "<LEVEL> (<ms_since_boot>) <tag>: <message>"
 _LOG = re.compile(r"^([IWE]) \((\d+)\) ([^:]+): (.*)$")
-# Share-line difficulty, three firmware dialects:
-#   AxeOS / Bitaxe:  "... diff 3035.4 of 1497."    → "<share> of <target>"
-#   forge-os v1.5+:  "... diff 3035.4 of 1497.00." → target printed %.2f
-#                    (stock builds keep the line at DEBUG so it normally
-#                    never reaches the WS, but custom builds may re-enable
-#                    it — parse it correctly either way)
-#   NerdQAxe(++):    "... diff 1394.8/3065/241M"   → "<share>/<target>/<best>"
-# We capture the share difficulty + the pool target from either. The number
-# pattern owns at most ONE dot followed by digits, so the sentence-final
-# period is never swallowed: the old greedy `[0-9.]+` captured "1497.00."
-# whole and float() raised, silently dropping every v1.5-format line. The
-# optional SI suffix (k/M/G/T/…) is parsed too, in case a pool runs a
-# high vardiff that the firmware prints in SI form.
-_SHARE = re.compile(
-    r"\bdiff\s+([0-9]+(?:\.[0-9]+)?[kKMGTPE]?)\s*(?:of|/)\s*([0-9]+(?:\.[0-9]+)?[kKMGTPE]?)"
-)
+# Share-line difficulty, four firmware dialects (all verified against the
+# vendor sources, not docs):
+#   axeOS 2.13:      "... diff 3035.4 of 1497."         target printed %ld (int)
+#   axeOS 2.14+:     "... diff 900000.0 of 1.04858e+06." target printed %g, so a
+#                    large vardiff comes out in SCIENTIFIC notation
+#   forge-os v1.5+:  "... diff 3035.4 of 1497.00."      target printed %.2f
+#                    (stock builds keep the line at DEBUG so it normally never
+#                    reaches the WS, but custom builds may re-enable it at INFO)
+#   NerdQAxe(++):    "... diff 1394.8/3065/241M"        "<share>/<target>/<best>"
+# The number token accepts integers, decimals, a leading dot, an optional SI
+# suffix (k/M/G/T/…) AND scientific notation. The scientific branch is the
+# axeOS-2.14 fix: the old token stopped at the "e", so "1.04858e+06" was read
+# as "1.04858" and every share on a high-vardiff 2.14 miner was mis-classified
+# as submitted. The token still owns at most one dot-run, so the sentence-final
+# period is never swallowed.
+_DIFF_TOKEN = r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+|[kKMGTPE])?"
+_SHARE = re.compile(rf"\bdiff\s+({_DIFF_TOKEN})\s*(?:of|/)\s*({_DIFF_TOKEN})")
 
 # Pool/vardiff target lines that survive at INFO on forge-os v1.5+ — the
 # only in-stream target source when the per-share lines are compiled out:
@@ -430,9 +431,12 @@ class LogStreamer:
                 uptime_ms = 0
             await self._on_result(stream, uptime_ms, share_diff, pool_target)
             return
-        # Bitaxe logs the verdict under tag "stratum_task"; NerdQAxe uses
-        # "stratum task (Pri)" (space + pool marker). Match both dialects.
-        if tag.startswith("stratum_task") or tag.startswith("stratum task"):
+        # Bitaxe logs the verdict under tag "stratum_task" (axeOS ≤2.13 and
+        # forge-os); axeOS 2.14 renamed it to "stratum_v1_task"; NerdQAxe uses
+        # "stratum task (Pri)" (space + pool marker). Match every dialect —
+        # "stratum_v1_task" does NOT start with "stratum_task", so it must be
+        # listed explicitly or 2.14 verdicts go ungraded.
+        if tag.startswith(("stratum_task", "stratum_v1_task", "stratum task")):
             if "result accepted" in msg:
                 self._on_verdict(stream, accepted=True)
                 return

@@ -176,11 +176,16 @@ def test_best_rounded_up_string_uses_precise_hint():
 
 def test_share_regex_dialects():
     cases = {
-        # v1.0 / stock AxeOS: integer target + sentence dot
+        # axeOS 2.13 / v1.0 stock: integer target (%ld) + sentence dot
         "Ver: 22816000 Nonce 639505B4 diff 3035.4 of 1497.": (3035.4, 1497.0),
-        # v1.5: target printed %.2f, still followed by the sentence dot.
+        # forge-os v1.5: target printed %.2f, still followed by the sentence dot.
         # The old greedy [0-9.]+ captured "1497.00." and float() raised.
         "Ver: 22816000 Nonce 639505B4 diff 3035.4 of 1497.00.": (3035.4, 1497.0),
+        # axeOS 2.14: target printed %g — a large vardiff comes out in
+        # scientific notation. The old token stopped at "e" and read 1.04858.
+        "Nonce 639505B4 diff 900000.0 of 1.04858e+06.": (900000.0, 1048580.0),
+        # axeOS 2.14 on a low vardiff: %g stays fixed-point ("8192")
+        "Nonce 639505B4 diff 636998.5 of 8192.": (636998.5, 8192.0),
         # NerdQAxe(++): slash dialect with trailing best
         "ID: 69fd, ASIC nr: 0 diff 1394.8/3065/241M": (1394.8, 3065.0),
         # SI-suffixed values
@@ -191,6 +196,34 @@ def test_share_regex_dialects():
         assert m is not None, line
         assert _parse_diff_token(m.group(1)) == want_share, line
         assert _parse_diff_token(m.group(2)) == want_target, line
+
+
+def test_axeos_214_scientific_share_and_v1_verdict():
+    """End-to-end axeOS 2.14 on a high vardiff: the share line carries the
+    pool target in %g scientific notation, and the accepted/rejected
+    verdict arrives under the renamed ``stratum_v1_task`` tag. Both must be
+    understood, or a 2.14 miner loses its dashed line (target mis-read) and
+    its verdicts (tag unmatched)."""
+    streamer, stream = _stream_pair()
+    share = (
+        "I (1000) asic_result: ID: 69fd, ASIC nr: 0, ver: 22816000 "
+        "Nonce 639505B4 diff 2000000.0 of 1.04858e+06."
+    )
+    verdict = "I (1100) stratum_v1_task: message result accepted"
+
+    async def run():
+        await streamer._handle_line(stream, share)
+        await streamer._handle_line(stream, verdict)
+
+    asyncio.run(run())
+    ev = stream.buffer[-1]
+    assert ev.estimated is False
+    assert ev.pool_target == 1_048_580.0  # 1.04858e+06, not 1.04858
+    assert ev.share_diff == 2_000_000.0
+    assert ev.submitted is True
+    assert stream.synthetic_mode is False
+    assert stream.accepted_total == 1
+    assert ev.accepted is True
 
 
 # ---------------------------------------------------------------------------

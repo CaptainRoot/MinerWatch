@@ -33,6 +33,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supported — its firmware exposes no standby endpoint — so the button stays
   hidden there.
 
+### Fixed
+
+- **Live shares keep working on axeOS 2.14.** The per-share log parser now
+  reads a pool target printed in scientific notation: axeOS 2.14 switched the
+  target format to `%g`, so a high vardiff comes out as e.g. `1.04858e+06`. The
+  old number token stopped at the exponent and read `1.04858`, which collapsed
+  the dashed pool-difficulty line and mislabelled almost every share as
+  submitted. The parser also recognises the accepted/rejected verdict under its
+  renamed 2.14 tag `stratum_v1_task`; the earlier `stratum_task` (axeOS ≤2.13
+  and forge-os) and NerdQAxe's `stratum task (Pri/Sec)` stay supported. axeOS
+  2.13 output (integer `%ld` target) parses exactly as before. Verified against
+  the bitaxeorg/ESP-Miner sources at v2.13.1, v2.14.0 and master.
+
+- **Each miner gets a distinct colour on the all-miners live-shares chart.**
+  Colours were derived by hashing the miner id into a 12-colour palette, which
+  reduced to `id % 12`, so any two miners whose ids were congruent mod 12 — for
+  example a Gamma on id 3 and a BitForge on id 15 — were drawn in the same hue.
+  The palette is now allocated across the whole fleet as a set: each miner keeps
+  its natural slot when free and otherwise takes the next free one, so up to
+  twelve miners stay visually distinct, and a miner's colour holds steady as
+  others are toggled on or off.
+
 ## [1.15.1] — 2026-06-13
 
 ### Changed
