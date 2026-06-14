@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { fmtDifficulty, fmtNum } from '@/lib/format';
-import { colorForMinerId, useLiveSharesFleet } from '@/lib/useLiveSharesFleet';
+import { buildMinerColorMap, colorForMinerId, useLiveSharesFleet } from '@/lib/useLiveSharesFleet';
 import type { MinerListEntry } from '@/lib/types';
 
 // AxeOS-derived firmwares are the only ones that expose a per-share log
@@ -84,6 +84,15 @@ export function FleetLiveSharesCard({ miners }: Props) {
   const axeMiners = useMemo(
     () => miners.filter((m) => AXEOS_FAMILIES.has(m.family) && m.enabled !== 0),
     [miners],
+  );
+
+  // One color per miner, resolved as a set so two ids that hash to the
+  // same palette slot (e.g. a Gamma + a BitForge on ids congruent mod 12)
+  // don't share a hue. Keyed on the full AxeOS list so a miner's color
+  // stays put when others are toggled off.
+  const colorMap = useMemo(
+    () => buildMinerColorMap(axeMiners.map((m) => m.id)),
+    [axeMiners],
   );
 
   // 10 minutes by default: the fleet view is a "what happened lately"
@@ -305,7 +314,7 @@ export function FleetLiveSharesCard({ miners }: Props) {
         <div className="flex flex-wrap gap-1.5">
           {axeMiners.map((m) => {
             const off = disabledIds.has(m.id);
-            const color = colorForMinerId(m.id);
+            const color = colorMap.get(m.id) ?? colorForMinerId(m.id);
             const est = estHashrateByMiner[m.id];
             return (
               <button
@@ -372,10 +381,10 @@ export function FleetLiveSharesCard({ miners }: Props) {
                   allowDataOverflow
                 />
                 <ZAxis range={[18, 18]} />
-                <Tooltip content={<ShareTooltip />} />
+                <Tooltip content={<ShareTooltip colorMap={colorMap} />} />
                 {Object.entries(seriesByMiner).map(([idStr, points]) => {
                   const id = Number(idStr);
-                  const color = colorForMinerId(id);
+                  const color = colorMap.get(id) ?? colorForMinerId(id);
                   return (
                     <Scatter
                       key={id}
@@ -436,9 +445,10 @@ function fmtClock(ts: number): string {
 interface TooltipProps {
   active?: boolean;
   payload?: Array<{ payload: ChartPoint }>;
+  colorMap?: Map<number, string>;
 }
 
-function ShareTooltip({ active, payload }: TooltipProps) {
+function ShareTooltip({ active, payload, colorMap }: TooltipProps) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
   const verdict = !p.submitted
@@ -453,7 +463,7 @@ function ShareTooltip({ active, payload }: TooltipProps) {
       <div className="flex items-center gap-2">
         <span
           className="inline-block h-2 w-2 rounded-full"
-          style={{ backgroundColor: colorForMinerId(p.minerId) }}
+          style={{ backgroundColor: colorMap?.get(p.minerId) ?? colorForMinerId(p.minerId) }}
         />
         <span className="font-semibold">{p.minerName}</span>
       </div>

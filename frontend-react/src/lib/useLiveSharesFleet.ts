@@ -272,3 +272,35 @@ export function colorForMinerId(id: number): string {
   const hashed = ((id * 2654435761) >>> 0) % MINER_COLOR_PALETTE.length;
   return MINER_COLOR_PALETTE[hashed];
 }
+
+/**
+ * Collision-free colors for a whole set of miner ids.
+ *
+ * `colorForMinerId` maps each id independently to `palette[hash(id) % N]`,
+ * so two miners whose ids land on the same slot share a hue — with this
+ * palette the hash reduces to `id % N`, so e.g. a Gamma on id 3 and a
+ * BitForge on id 15 both come out blue. This resolves the set as a whole:
+ * each miner keeps its natural slot when it's free, otherwise it takes the
+ * next free slot, so up to N miners are always visually distinct. Ids are
+ * processed in ascending order so the mapping is deterministic and a
+ * miner's color stays put as others are toggled on/off; only a fleet
+ * larger than the palette (N colors) has to reuse one.
+ */
+export function buildMinerColorMap(ids: number[]): Map<number, string> {
+  const n = MINER_COLOR_PALETTE.length;
+  const used = new Set<number>();
+  const map = new Map<number, string>();
+  for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
+    let slot = ((id * 2654435761) >>> 0) % n;
+    if (used.size < n) {
+      let step = 0;
+      while (used.has(slot) && step < n) {
+        slot = (slot + 1) % n;
+        step += 1;
+      }
+    }
+    used.add(slot);
+    map.set(id, MINER_COLOR_PALETTE[slot]);
+  }
+  return map;
+}
