@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-06-14
+
 ### Added
 
 - **Mute a miner's offline alerts until it comes back — for when you power one
@@ -58,6 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/api/system/info`, so a stock board keeps the button hidden while a custom
   build that exposes pause/resume gets it.
 
+### Changed
+
+- **The dashboard total hashrate scales its units.** The top-of-page "Total
+  hashrate" KPI now shows a single decimal once the fleet exceeds 100 TH/s
+  (e.g. 110.2 TH/s) and switches to PH/s at 1000 TH/s and above, instead of
+  always printing TH/s with two decimals. Per-miner figures are unchanged.
+
 ### Fixed
 
 - **An implausible hashrate right after a resume or restart is dropped.**
@@ -89,6 +98,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its natural slot when free and otherwise takes the next free one, so up to
   twelve miners stay visually distinct, and a miner's colour holds steady as
   others are toggled on or off.
+
+- **The all-miners live-shares chart shows a realistic per-miner hashrate, or
+  "—" when it cannot tell.** The legend's TH/s figure is estimated from
+  submitted shares; the previous method divided each miner's summed share work
+  by the span between its first and last share in a 60-second window, which
+  systematically overestimated (roughly by N/(N-1)) and spiked to implausible
+  values whenever only a couple of shares landed close together. It now sums a
+  fixed count of the most recent submitted shares (25) and divides by the time
+  from the oldest of those shares to now, which removes the bias and keeps the
+  statistical error roughly constant whatever the pool's vardiff. When fewer
+  than that many submitted shares are available within the retention window it
+  shows "—" instead of a fabricated number, and a stalled miner decays to "—"
+  rather than freezing on its last value.
 
 ## [1.15.1] — 2026-06-13
 

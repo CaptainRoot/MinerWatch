@@ -1,7 +1,7 @@
 import { Activity, Cpu, Flame, Gauge, Zap } from 'lucide-react';
 
 import { Card } from '@/components/ui/card';
-import { fmtNum, tempTone } from '@/lib/format';
+import { fmtHashrate, fmtNum, tempTone } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { MinerListEntry } from '@/lib/types';
 
@@ -30,6 +30,7 @@ export function FleetSummary({ miners }: Props) {
     }
   }
   const efficiency = totalHash > 0 ? totalPower / totalHash : null;
+  const hr = fmtHashrate(totalHash);
 
   const tempToneClass = (() => {
     const t = tempTone(maxTemp);
@@ -52,8 +53,8 @@ export function FleetSummary({ miners }: Props) {
         icon={Gauge}
         iconTone="text-chart-mining"
         label="Total hashrate"
-        value={fmtNum(totalHash, 2)}
-        unit="TH/s"
+        value={hr.value}
+        unit={hr.unit}
       />
       <Kpi
         icon={Zap}

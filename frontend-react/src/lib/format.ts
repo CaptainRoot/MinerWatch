@@ -30,6 +30,27 @@ export function fmtNum(value: number | null | undefined, decimals = 2, unit = ''
   return `${Number(value).toFixed(decimals)}${unit ? ` ${unit}` : ''}`;
 }
 
+// Fleet hashrate formatter for the dashboard "Total hashrate" KPI. Input
+// is already in TH/s. Scales to PH/s at >= 1000 TH/s, and picks decimals
+// by the *displayed* magnitude (>= 100 → 1 decimal, else 2) so the figure
+// keeps ~3-4 significant digits in either unit. Value and unit are
+// returned separately so the KPI keeps styling the unit in its own muted
+// span. Scope is deliberately the fleet total only — per-miner cards
+// (always a few TH/s) keep their existing 2-decimal TH/s format.
+export function fmtHashrate(ths: number | null | undefined): { value: string; unit: string } {
+  if (ths === null || ths === undefined || Number.isNaN(Number(ths))) {
+    return { value: '—', unit: 'TH/s' };
+  }
+  let v = Number(ths);
+  let unit = 'TH/s';
+  if (Math.abs(v) >= 1000) {
+    v = v / 1000;
+    unit = 'PH/s';
+  }
+  const decimals = Math.abs(v) >= 100 ? 1 : 2;
+  return { value: v.toFixed(decimals), unit };
+}
+
 export function fmtUptime(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return '—';
   const d = Math.floor(seconds / 86400);

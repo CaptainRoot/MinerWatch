@@ -33,6 +33,15 @@ const SHOW_BELOW_KEY = 'mw-fleet-shares-show-below';
 
 const HASHES_PER_DIFF = 4294967296;
 
+// Share-derived hashrate estimate shown on each legend chip. We use a
+// fixed COUNT window (the last EST_SHARES submitted shares) rather than a
+// fixed time window: the relative error of a share-rate estimate is
+// ~1/sqrt(N), so pinning N keeps the error roughly constant (±20% at 25)
+// however the pool's vardiff swings. Never look further back than the
+// hook's retention buffer; fewer than EST_SHARES shares in that span -> "—".
+const EST_SHARES = 25;
+const EST_LOOKBACK_MS = 15 * 60 * 1000;
+
 interface ChartPoint {
   ts: number;
   diff: number;
@@ -175,7 +184,7 @@ export function FleetLiveSharesCard({ miners }: Props) {
   // Sliding "now" makes the chart march left even when no shares
   // arrive in a quiet window; otherwise xMax sticks to the last
   // share's ts and the chart looks frozen.
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(t);
@@ -203,27 +212,40 @@ export function FleetLiveSharesCard({ miners }: Props) {
     });
   }
 
-  // Per-miner instantaneous estimated hashrate over the last 60s.
-  // Useful as a sanity-check next to each legend entry, so the user
-  // sees not just colours but also "who is contributing what" while
-  // glancing at the chart.
+  // Per-miner share-derived hashrate estimate next to each legend entry,
+  // as a sanity-check ("who is contributing what") — NOT the firmware's
+  // reported hashrate. Expected work per submitted share ≈ target × 2^32
+  // hashes, so the assigned targets summed over elapsed time give H.
+  //
+  // Window is the last EST_SHARES *submitted* shares (capped at the
+  // retention buffer), so the ±1/sqrt(N) error stays put however the
+  // vardiff moves. The denominator is (now − ts of the oldest of those
+  // shares), never the first-to-last span: dividing a fixed lump of work
+  // by the span systematically overestimates (≈ N/(N−1)) and spikes when
+  // shares cluster, whereas measuring to "now" is ~unbiased (Poisson
+  // forward-recurrence) and lets a stalled miner decay instead of
+  // freezing. Below EST_SHARES shares in the window -> null -> "—".
   const estHashrateByMiner = useMemo(() => {
     const out: Record<number, number | null> = {};
     const now = Date.now();
-    const cutoff = now - 60_000;
+    const cutoff = now - EST_LOOKBACK_MS;
     for (const id of subscribedIds) {
       const events = eventsByMiner[id] ?? [];
       const subs = events.filter((e) => e.submitted && e.ts >= cutoff);
-      if (subs.length < 2) {
+      if (subs.length < EST_SHARES) {
         out[id] = null;
         continue;
       }
-      const spanS = Math.max(1, (subs[subs.length - 1].ts - subs[0].ts) / 1000);
-      const sumTarget = subs.reduce((a, e) => a + e.target, 0);
+      const recent = subs.slice(-EST_SHARES);
+      const spanS = Math.max(1, (now - recent[0].ts) / 1000);
+      const sumTarget = recent.reduce((a, e) => a + e.target, 0);
       out[id] = (sumTarget * HASHES_PER_DIFF) / spanS / 1e12;
     }
     return out;
-  }, [eventsByMiner, subscribedIds]);
+    // `tick` (1s) is intentionally a dep so the window slides and a
+    // stalled miner rolls over to "—" even when no new shares arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventsByMiner, subscribedIds, tick]);
 
   // ---- empty / unsupported state ----
   if (!axeMiners.length) {
@@ -337,11 +359,19 @@ export function FleetLiveSharesCard({ miners }: Props) {
                   }}
                 />
                 <span className="font-medium">{m.name}</span>
-                {!off && est != null && (
-                  <span className="tabular-nums text-muted-foreground">
-                    {fmtNum(est, 2)} TH/s
-                  </span>
-                )}
+                {!off &&
+                  (est != null ? (
+                    <span className="tabular-nums text-muted-foreground">
+                      {fmtNum(est, 2)} TH/s
+                    </span>
+                  ) : (
+                    <span
+                      className="tabular-nums text-muted-foreground/50"
+                      title="Not enough recent shares to estimate hashrate"
+                    >
+                      —
+                    </span>
+                  ))}
               </button>
             );
           })}
