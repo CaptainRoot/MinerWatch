@@ -513,6 +513,28 @@ export function useAckAlert() {
   });
 }
 
+// Silence a miner's offline/disconnect alert until it reconnects — backs the
+// "Mute" button on offline rows in the AlertsBanner (the miner was powered
+// down on purpose). The backend also acks that miner's offline rows, so
+// invalidating ['alerts'] drops them out of the unread banner immediately.
+// The mute clears itself the next time the miner is polled online again.
+export function useMuteMinerOffline() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (minerId: number) =>
+      api<{ ok: true; miner_id: number; muted: boolean; acked: number }>(
+        `/api/miners/${minerId}/offline-mute`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['alerts'] });
+      // Also refresh the fleet list so the card's "muted" badge appears at
+      // once, instead of waiting for the next 5s miners poll.
+      qc.invalidateQueries({ queryKey: ['miners'] });
+    },
+  });
+}
+
 export function useSaveSettings() {
   const qc = useQueryClient();
   return useMutation({

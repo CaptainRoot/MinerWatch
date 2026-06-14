@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { BellOff } from 'lucide-react';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +31,9 @@ export function MinerCard({ miner }: Props) {
   // gate specifically on "offline" — not "pending" — so a freshly loaded
   // page before the first poll still shows the last known metrics.
   const offline = status === 'offline';
+  // Offline alerts silenced on purpose (powered down by the user). Show a
+  // muted badge next to the offline status so the silence is never invisible.
+  const muted = offline && !!miner.offline_muted;
   // In standby the firmware keeps INA260 power/current/voltage, VR temp and
   // fan RPM live (real idle ~1.5 W) and zeroes the ASIC chip temps, which the
   // driver maps to None → "—". So there's nothing stale to blank: live values
@@ -55,7 +59,19 @@ export function MinerCard({ miner }: Props) {
               {familyLabel} · {miner.host}
             </div>
           </div>
-          <StatusBadge status={status} />
+          <div className="flex shrink-0 items-center gap-1.5">
+            {muted && (
+              <Badge
+                variant="outline"
+                className="gap-1 border-border text-muted-foreground"
+                title="Offline alerts silenced until this miner reconnects"
+              >
+                <BellOff className="h-3 w-3" />
+                muted
+              </Badge>
+            )}
+            <StatusBadge status={status} />
+          </div>
         </header>
 
         <div className="mt-4 grid grid-cols-3 gap-3">

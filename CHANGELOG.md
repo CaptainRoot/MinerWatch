@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mute a miner's offline alerts until it comes back — for when you power one
+  down on purpose.** A miner switched off intentionally used to keep firing the
+  disconnect alert every `repeat_seconds` (10 min by default) until it was turned
+  back on, possibly weeks later. It can now be silenced: the first offline alert
+  still fires (so a real, unexpected drop is never hidden), and a Mute control
+  stops every repeat after it — no push, no Telegram, and the stale offline rows
+  are acknowledged out of the unread banner so the silence is complete. The mute
+  is a per-miner flag persisted in the database, so it survives a MinerWatch
+  restart, and it clears itself automatically the next time the miner is polled
+  online again — re-powering the device re-arms the alert, with no manual
+  un-mute to remember. It is reachable from the dashboard alerts banner: a quick
+  Mute on the collapsed bar when the latest alert is an offline one, plus a
+  per-row Mute in the expanded list when several miners are down at once. A
+  "muted" badge next to the offline status on the miner card keeps the silenced
+  state visible at a glance. New backend endpoint
+  `POST /api/miners/{id}/offline-mute` (sets the flag and acknowledges that
+  miner's outstanding offline alerts) and a new `offline_muted` column on the
+  `miners` table.
+
 - **Remote standby — stop a miner and bring it back — for AxeOS and NerdQAxe.**
   A miner can now be put into standby straight from MinerWatch: the ASIC is
   powered down and held idle so power draw and heat fall to near nothing, while

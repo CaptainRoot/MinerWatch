@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS miners (
     guardian_temp_source    TEXT,               -- vr (default) or chip — which sensor governs frequency
     guardian_max_temp_c     REAL,               -- per-miner max temp / high threshold (NULL → source default)
     guardian_voltage_enabled INTEGER DEFAULT 0, -- 0/1 per-miner opt-in for the voltage co-tuner (Phase 2)
+    -- Offline-alert mute. When 1, the offline/disconnect alert is suppressed
+    -- for this miner (no notification, no DB row). Set from the dashboard when
+    -- a miner is powered down on purpose, and auto-cleared the next time the
+    -- miner is polled online again (the reconnect = the next restart).
+    offline_muted   INTEGER NOT NULL DEFAULT 0,
     last_seen_ts    INTEGER,
     last_status     TEXT,                 -- online | offline | error
     extra           TEXT,                 -- free-form JSON
@@ -422,6 +427,9 @@ def _init_db_sync() -> None:
             "ALTER TABLE miners ADD COLUMN guardian_temp_source TEXT",
             "ALTER TABLE miners ADD COLUMN guardian_max_temp_c REAL",
             "ALTER TABLE miners ADD COLUMN guardian_voltage_enabled INTEGER DEFAULT 0",
+            # Offline-alert mute (per-miner): suppress disconnect alerts when
+            # the miner is powered down on purpose, until it reconnects.
+            "ALTER TABLE miners ADD COLUMN offline_muted INTEGER NOT NULL DEFAULT 0",
             # Per-trophy dashboard visibility (see block_finds DDL).
             "ALTER TABLE block_finds ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
         ]:
@@ -469,6 +477,22 @@ async def get_miner(miner_id: int) -> dict[str, Any] | None:
         async with conn.execute("SELECT * FROM miners WHERE id = ?", (miner_id,)) as cur:
             row = await cur.fetchone()
     return dict(row) if row else None
+
+
+async def set_offline_muted(miner_id: int, muted: bool) -> None:
+    """Set/clear the offline-alert mute flag for one miner.
+
+    When muted, :func:`alerts.evaluate` stops firing the offline alert for
+    this miner. The flag is cleared automatically once the miner is polled
+    online again (see the online branch in evaluate), so the user never has
+    to un-mute by hand — re-powering the miner re-arms the alert.
+    """
+    async with connect() as conn:
+        await conn.execute(
+            "UPDATE miners SET offline_muted = ?, updated_at = ? WHERE id = ?",
+            (1 if muted else 0, now_ts(), miner_id),
+        )
+        await conn.commit()
 
 
 async def find_miner_by_mac(mac: str) -> dict[str, Any] | None:
@@ -1486,6 +1510,23 @@ async def ack_alert(alert_id: int) -> None:
     async with connect() as conn:
         await conn.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,))
         await conn.commit()
+
+
+async def ack_offline_alerts(miner_id: int) -> int:
+    """Acknowledge every unread offline alert for one miner. Returns the count.
+
+    Called when the user mutes a miner from the dashboard: the stale offline
+    rows that are still sitting in the unread banner should disappear too, not
+    just stop arriving — that's the visible half of "don't show them".
+    """
+    async with connect() as conn:
+        cur = await conn.execute(
+            "UPDATE alerts SET acknowledged = 1 "
+            "WHERE miner_id = ? AND code = 'offline' AND acknowledged = 0",
+            (miner_id,),
+        )
+        await conn.commit()
+        return int(cur.rowcount or 0)
 
 
 # ---------- Settings ----------

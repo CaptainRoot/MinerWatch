@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Bell, BellRing, ChevronDown, ChevronUp } from 'lucide-react';
+import { Bell, BellOff, BellRing, ChevronDown, ChevronUp } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { useAckAllAlerts, useUnackAlerts } from '@/api/hooks';
+import { useAckAllAlerts, useMuteMinerOffline, useUnackAlerts } from '@/api/hooks';
 import { fmtRelative } from '@/lib/format';
 import type { AlertEntry } from '@/lib/types';
 
@@ -18,11 +18,16 @@ import type { AlertEntry } from '@/lib/types';
 export function AlertsBanner() {
   const { data } = useUnackAlerts();
   const ack = useAckAllAlerts();
+  const muteTop = useMuteMinerOffline();
   const [expanded, setExpanded] = useState(false);
 
   const alerts = data?.alerts ?? [];
   if (!alerts.length) return null;
   const last = alerts[0];
+  // The top (latest) alert is the one the collapsed bar previews. When it's an
+  // offline alert, surface a quick Mute right here so the user can silence the
+  // miner without expanding the list — the common "I just powered it down" case.
+  const canMuteTop = last.code === 'offline' && last.miner_id != null;
 
   const tone =
     last.severity === 'critical'
@@ -57,6 +62,20 @@ export function AlertsBanner() {
           )}
         </button>
         <div className="flex items-center gap-2 sm:ml-auto">
+          {!expanded && canMuteTop && (
+            <Button
+              type="button"
+              size="sm"
+              variant="subtle"
+              className="shrink-0 gap-1 whitespace-nowrap px-2"
+              disabled={muteTop.isPending}
+              onClick={() => muteTop.mutate(last.miner_id as number)}
+              title="Silence this miner's offline alerts until it comes back online"
+            >
+              <BellOff className="h-4 w-4" />
+              {muteTop.isPending ? 'Muting…' : 'Mute'}
+            </Button>
+          )}
           <Button
             type="button"
             size="sm"
@@ -97,18 +116,37 @@ export function AlertsBanner() {
 }
 
 function AlertRow({ alert }: { alert: AlertEntry }) {
+  const mute = useMuteMinerOffline();
   const dot =
     alert.severity === 'critical'
       ? 'bg-destructive'
       : alert.severity === 'warning'
         ? 'bg-amber-400'
         : 'bg-muted-foreground';
+  // Offline alerts get a Mute action: the miner was powered down on purpose,
+  // so silence its disconnect alerts (and stop the repeats) until it comes
+  // back online. Only offline rows carry a miner_id worth muting.
+  const canMute = alert.code === 'offline' && alert.miner_id != null;
   return (
     <li className="flex items-start gap-2 border-t border-border/40 px-4 py-2 first:border-t-0">
       <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dot}`} />
       <span className="min-w-0 flex-1 break-words text-foreground">
         {alert.message}
       </span>
+      {canMute && (
+        <Button
+          type="button"
+          size="sm"
+          variant="subtle"
+          className="h-6 shrink-0 gap-1 px-2 text-xs"
+          disabled={mute.isPending}
+          onClick={() => mute.mutate(alert.miner_id as number)}
+          title="Silence this miner's offline alerts until it comes back online"
+        >
+          <BellOff className="h-3.5 w-3.5" />
+          {mute.isPending ? 'Muting…' : 'Mute'}
+        </Button>
+      )}
       <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
         {fmtRelative(alert.ts)}
       </span>

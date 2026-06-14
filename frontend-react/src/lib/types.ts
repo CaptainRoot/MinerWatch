@@ -29,6 +29,9 @@ export interface MinerRecord {
   guardian_temp_source: string | null;       // 'vr' (default) | 'chip'
   guardian_max_temp_c: number | null;         // per-miner max temp (high threshold)
   last_status: string | null;
+  // Offline-alert mute (0 | 1). When 1, disconnect alerts are silenced for
+  // this miner until it reconnects — see the dashboard banner Mute button.
+  offline_muted: number;
 }
 
 export interface MetricSample {

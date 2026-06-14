@@ -1747,6 +1747,25 @@ async def api_alert_ack(alert_id: int) -> dict:
     return {"ok": True}
 
 
+@app.post("/api/miners/{miner_id}/offline-mute")
+async def api_miner_offline_mute(miner_id: int) -> dict:
+    """Silence this miner's offline/disconnect alert until it reconnects.
+
+    Backs the dashboard "Mute" button on an offline alert: the user has
+    powered the miner down on purpose and doesn't want the repeated offline
+    notifications. We set the persistent per-miner flag (so it survives a
+    MinerWatch restart) and acknowledge the offline rows already sitting in
+    the unread banner. The flag clears itself the next time the miner is
+    polled online again — see alerts.evaluate().
+    """
+    miner = await db.get_miner(miner_id)
+    if not miner:
+        raise HTTPException(404, "miner not found")
+    await db.set_offline_muted(miner_id, True)
+    acked = await db.ack_offline_alerts(miner_id)
+    return {"ok": True, "miner_id": miner_id, "muted": True, "acked": acked}
+
+
 # ---------- API: settings ----------
 
 class SettingsPayload(BaseModel):

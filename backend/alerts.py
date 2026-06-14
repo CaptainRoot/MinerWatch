@@ -554,11 +554,25 @@ async def evaluate(samples: dict[int, MinerSample]) -> None:
                 msg = f"{miner_name} is back online"
                 await db.insert_alert(miner_id, "info", "recovered", msg)
                 await send_notification({"title": "Miner online", "body": msg, "miner_id": miner_id})
+            # Re-powering the miner re-arms the offline alert: clear any mute the
+            # user set from the dashboard while it was deliberately down. The
+            # miner reads online again on the first successful poll after it
+            # boots, so this is exactly the "next restart" the Mute button
+            # promised — no manual un-mute needed.
+            if info.get("offline_muted"):
+                await db.set_offline_muted(miner_id, False)
+                log.info("offline mute auto-cleared for miner %s (back online)", miner_id)
         else:
             last_online = prev.get("last_online_ts", now)
             offline_for = now - last_online
             last_offline_alert = prev.get("last_offline_alert_ts", 0)
-            if offline_for >= cfg.alerts.offline_threshold_seconds and (
+            # When the user muted this miner from the dashboard (powered it down
+            # on purpose), suppress the offline alert entirely: no push/Telegram
+            # and no DB row, so it also stops piling up in the unread banner.
+            # The first alert already fired before the mute — this only silences
+            # the repeats — and the flag is cleared on reconnect above.
+            muted = bool(info.get("offline_muted"))
+            if not muted and offline_for >= cfg.alerts.offline_threshold_seconds and (
                 not prev.get("offline_alerted") or (now - last_offline_alert) >= repeat_s
             ):
                 msg = f"{miner_name} has not responded for {offline_for}s"
