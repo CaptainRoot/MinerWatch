@@ -86,7 +86,9 @@ APPLY_THRESHOLD = 1.0
 # Hard threshold: above this temp we step in. 75°C is conservative for
 # ASIC longevity: the Avalon firmware tolerates up to 95°C to optimize
 # hashrate, but long-term it accelerates degradation. Close to the
-# typical PID target (60°C) but with a safety margin.
+# typical PID target (60°C) but with a safety margin. This is the GLOBAL
+# default; Avalon/Canaan miners can override it per-device via the
+# ``watchdog_overheat_c`` column (see resolve_watchdog_thresholds).
 WATCHDOG_OVERHEAT_C = 75.0
 
 # Release threshold: below this temp we consider the emergency over.
@@ -94,6 +96,12 @@ WATCHDOG_OVERHEAT_C = 75.0
 # just above the Bitaxe PID target (60°C) so if the PID is doing its
 # job the watchdog stays out of the way.
 WATCHDOG_RELEASE_C = 65.0
+
+# The release point trails the trigger by this fixed margin, so when a
+# per-miner override moves the trigger the hysteresis band moves with it
+# (e.g. an 85°C trigger releases at 75°C) and can never invert. Derived from
+# the defaults above so stock behaviour is unchanged: 75 → 65.
+WATCHDOG_RELEASE_MARGIN_C = WATCHDOG_OVERHEAT_C - WATCHDOG_RELEASE_C
 
 # Consecutive samples over/under threshold before acting/releasing.
 # With SAMPLE_SECONDS=5 → 3 samples = ~15s of sustained overheat.
@@ -108,6 +116,31 @@ WATCHDOG_REALERT_S = 600  # 10 min
 # `auto_fan.last_tick_ts` for external checks (e.g. a future
 # /api/health/autofan endpoint).
 HEARTBEAT_LOG_INTERVAL_S = 300  # log every 5 min
+
+
+def resolve_watchdog_thresholds(miner: dict) -> tuple[float, float]:
+    """Return ``(overheat_c, release_c)`` for a miner's overheat watchdog.
+
+    Avalon/Canaan miners may override the trigger per-device via the
+    ``watchdog_overheat_c`` column (the firmware tolerates up to ~95°C but that
+    accelerates ASIC wear, so the user picks their own ceiling). Every other
+    family uses the global ``WATCHDOG_OVERHEAT_C`` default — keeping the hard
+    "75°C" net the rest of MinerWatch (and the Guardian copy) assumes. The
+    release point always trails the trigger by ``WATCHDOG_RELEASE_MARGIN_C`` so
+    the hysteresis band moves with the trigger and never inverts.
+
+    A malformed / out-of-range stored value falls back to the default rather
+    than disarming the net; the API validates the range on write.
+    """
+    overheat = WATCHDOG_OVERHEAT_C
+    if (miner.get("family") or "").lower() == "canaan":
+        raw = miner.get("watchdog_overheat_c")
+        if raw is not None:
+            try:
+                overheat = float(raw)
+            except (TypeError, ValueError):
+                overheat = WATCHDOG_OVERHEAT_C
+    return overheat, overheat - WATCHDOG_RELEASE_MARGIN_C
 
 
 # ============================================================================
@@ -357,22 +390,23 @@ class AutoFanController:
             _watchdog_states[miner_id] = state
 
         temp = float(sample.temp_chip_c)
+        overheat_c, release_c = resolve_watchdog_thresholds(miner)
 
-        if temp >= WATCHDOG_OVERHEAT_C:
+        if temp >= overheat_c:
             state.overheat_count += 1
             state.release_count = 0
             if (
                 state.overheat_count >= WATCHDOG_TRIGGER_CONSECUTIVE
                 and not state.forced
             ):
-                await self._watchdog_force_max(miner, temp, state)
+                await self._watchdog_force_max(miner, temp, state, overheat_c)
             return state.forced
 
-        if temp <= WATCHDOG_RELEASE_C:
+        if temp <= release_c:
             state.release_count += 1
             state.overheat_count = 0
             if state.forced and state.release_count >= WATCHDOG_RELEASE_CONSECUTIVE:
-                await self._watchdog_release(miner, temp, state)
+                await self._watchdog_release(miner, temp, state, release_c)
             return state.forced
 
         # Neutral zone (between release and overheat): no transition.
@@ -381,7 +415,7 @@ class AutoFanController:
         return state.forced
 
     async def _watchdog_force_max(
-        self, miner: dict, temp: float, state: _WatchdogState
+        self, miner: dict, temp: float, state: _WatchdogState, overheat_c: float
     ) -> None:
         miner_id = int(miner["id"])
         cfg = get_config()
@@ -396,7 +430,7 @@ class AutoFanController:
         state.forced = True
         log.warning(
             "WATCHDOG miner=%s OVERHEAT %.1f°C ≥ %.1f°C — fan forced to 100%%",
-            miner.get("name"), temp, WATCHDOG_OVERHEAT_C,
+            miner.get("name"), temp, overheat_c,
         )
         # Push alert (anti-spam with realert window)
         now = time.time()
@@ -418,12 +452,12 @@ class AutoFanController:
             state.last_alert_ts = now
 
     async def _watchdog_release(
-        self, miner: dict, temp: float, state: _WatchdogState
+        self, miner: dict, temp: float, state: _WatchdogState, release_c: float
     ) -> None:
         miner_id = int(miner["id"])
         log.info(
             "WATCHDOG miner=%s temp dropped to %.1f°C ≤ %.1f°C — control released",
-            miner.get("name"), temp, WATCHDOG_RELEASE_C,
+            miner.get("name"), temp, release_c,
         )
         state.forced = False
         state.release_count = 0

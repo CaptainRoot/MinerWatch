@@ -14,6 +14,7 @@ import { HistoryCharts } from '@/components/miner/HistoryCharts';
 import { FanControls } from '@/components/miner/FanControls';
 import { WorkModeControls } from '@/components/miner/WorkModeControls';
 import { GuardianPanel } from '@/components/miner/GuardianPanel';
+import { WatchdogPanel } from '@/components/miner/WatchdogPanel';
 import { useMiner } from '@/api/hooks';
 
 /**
@@ -130,7 +131,8 @@ export function MinerPage() {
           <FanControls data={data} />
         </TabsContent>
 
-        <TabsContent value="advanced" className="mt-0">
+        <TabsContent value="advanced" className="mt-0 space-y-4">
+          <WatchdogPanel data={data} />
           <GuardianPanel data={data} />
         </TabsContent>
       </Tabs>

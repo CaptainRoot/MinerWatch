@@ -22,6 +22,9 @@ export interface MinerRecord {
   auto_target_c: number | null;
   fan_min_override: number | null;
   fan_max_override: number | null;
+  // Per-miner overheat-watchdog trigger °C (Avalon/Canaan only). null → the
+  // global 75°C default. The fan-to-100% release trails it by a fixed 10°C.
+  watchdog_overheat_c: number | null;
   // Guardian (runtime frequency governor) per-miner settings.
   guardian_enabled: number | null;          // 0 | 1 (SQLite int)
   guardian_max_freq_mhz: number | null;      // ceiling ("max frequency")

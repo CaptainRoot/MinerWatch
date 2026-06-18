@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Set the overheat-watchdog temperature per Avalon miner — instead of a fixed
+  75°C for everyone.** The server-side overheat watchdog (which forces the fan to
+  100% and sends an alert when chip temperature stays above a hard trigger,
+  regardless of fan mode) has always used a fixed 75°C net. Avalon/Canaan miners
+  can now override that trigger per device from the miner's **Advanced** tab: the
+  default stays 75°C, but it can be set anywhere in 60–95°C for boards that run
+  hotter by design. The release point — when the fan is handed back — trails the
+  trigger by a fixed 10°C, so the hysteresis band moves with the setting and can
+  never invert (the stock 75°C → 65°C behaviour is unchanged). The override is
+  Avalon-only by design: every other family keeps the fixed 75°C net, so the
+  Guardian's chip-mode guard and the copy that reference it stay correct. New
+  per-miner `watchdog_overheat_c` column (NULL → the 75°C default), carried on
+  the existing `POST /api/miners/{id}/control/fan_config` endpoint with a 60–95°C
+  range check and a family guard that rejects the field on non-Avalon miners.
+
 ## [1.16.0] — 2026-06-14
 
 ### Added

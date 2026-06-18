@@ -1351,6 +1351,10 @@ class FanConfigPayload(BaseModel):
     fan_min_override: Optional[int] = None
     fan_max_override: Optional[int] = None
     fan_threshold_c: Optional[float] = None
+    # Per-miner overheat-watchdog trigger (Avalon/Canaan only). NULL → the
+    # global 75°C default (auto_control.WATCHDOG_OVERHEAT_C). The fan-to-100%
+    # release point trails it by a fixed 10°C, so the band scales with this.
+    watchdog_overheat_c: Optional[float] = Field(default=None, ge=60, le=95)
 
 
 @app.post("/api/miners/{miner_id}/control/fan_config")
@@ -1358,6 +1362,14 @@ async def api_set_fan_config(miner_id: int, payload: FanConfigPayload) -> dict:
     miner = await db.get_miner(miner_id)
     if not miner:
         raise HTTPException(404, "miner not found")
+    # The overheat-watchdog override is Avalon/Canaan-only: every other family
+    # keeps the global 75°C net (and the Guardian copy that references it).
+    if payload.watchdog_overheat_c is not None:
+        if (miner.get("family") or "").lower() != "canaan":
+            raise HTTPException(
+                400,
+                "the overheat watchdog is configurable only on Avalon/Canaan miners",
+            )
     try:
         await db.set_fan_config(
             miner_id,
@@ -1366,6 +1378,7 @@ async def api_set_fan_config(miner_id: int, payload: FanConfigPayload) -> dict:
             fan_min_override=payload.fan_min_override,
             fan_max_override=payload.fan_max_override,
             fan_threshold_c=payload.fan_threshold_c,
+            watchdog_overheat_c=payload.watchdog_overheat_c,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -463,6 +463,7 @@ interface FanConfigPayload {
   fan_min_override?: number;
   fan_max_override?: number;
   fan_threshold_c?: number;
+  watchdog_overheat_c?: number;
 }
 
 export function useSetFanConfig(minerId: number) {

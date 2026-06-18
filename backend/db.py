@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS miners (
     auto_target_c   REAL,                 -- target temperature for minerwatch mode
     fan_min_override INTEGER,             -- minimum percent override (default 15)
     fan_max_override INTEGER,             -- maximum percent override (default 100)
+    watchdog_overheat_c REAL,             -- per-miner overheat watchdog trigger in C (NULL means the global default of 75). Avalon/Canaan only
     -- Guardian (runtime frequency governor). Per-miner opt-in + the
     -- frequency ceiling/floor it operates within. All thresholds/steps
     -- are global (see GuardianCfg) and only these per-device knobs live here.
@@ -420,6 +421,8 @@ def _init_db_sync() -> None:
             "ALTER TABLE miners ADD COLUMN auto_target_c REAL",
             "ALTER TABLE miners ADD COLUMN fan_min_override INTEGER",
             "ALTER TABLE miners ADD COLUMN fan_max_override INTEGER",
+            # Per-miner overheat watchdog trigger override (Avalon/Canaan only).
+            "ALTER TABLE miners ADD COLUMN watchdog_overheat_c REAL",
             # Guardian (runtime frequency governor) per-miner knobs.
             "ALTER TABLE miners ADD COLUMN guardian_enabled INTEGER DEFAULT 0",
             "ALTER TABLE miners ADD COLUMN guardian_max_freq_mhz INTEGER",
@@ -1824,11 +1827,15 @@ async def set_fan_config(
     fan_min_override: int | None = None,
     fan_max_override: int | None = None,
     fan_threshold_c: float | None = None,
+    watchdog_overheat_c: float | None = None,
 ) -> None:
     """Update the fan-control settings for a miner.
 
     All fields are optional: pass only the ones you want to change,
-    the others are left untouched (COALESCE).
+    the others are left untouched (COALESCE). ``watchdog_overheat_c`` is the
+    per-miner overheat-watchdog trigger (Avalon/Canaan only); NULL keeps the
+    global default. Like the other knobs here it can't be reset back to NULL
+    via COALESCE — the caller sets a concrete value or leaves it.
     """
     if fan_mode is not None and fan_mode not in ("manual", "firmware", "minerwatch"):
         raise ValueError(f"invalid fan_mode: {fan_mode!r}")
@@ -1841,6 +1848,7 @@ async def set_fan_config(
               fan_min_override = COALESCE(?, fan_min_override),
               fan_max_override = COALESCE(?, fan_max_override),
               fan_threshold_c = COALESCE(?, fan_threshold_c),
+              watchdog_overheat_c = COALESCE(?, watchdog_overheat_c),
               updated_at = ?
             WHERE id = ?
             """,
@@ -1850,6 +1858,7 @@ async def set_fan_config(
                 fan_min_override,
                 fan_max_override,
                 fan_threshold_c,
+                watchdog_overheat_c,
                 now_ts(),
                 miner_id,
             ),
