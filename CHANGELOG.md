@@ -24,6 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the existing `POST /api/miners/{id}/control/fan_config` endpoint with a 60–95°C
   range check and a family guard that rejects the field on non-Avalon miners.
 
+### Changed
+
+- **Block-found notification copy is now coin-agnostic — "solved a block"
+  instead of "solved a Bitcoin block".** MinerWatch is increasingly used to
+  solo-mine SHA-256 coins other than Bitcoin (e.g. DigiByte), where a
+  notification announcing a "Bitcoin block" was misleading and alarming — one
+  user who hit a DigiByte block was startled by the wording. The push, Telegram
+  and stored-alert body now read "solved a block"; the celebratory title
+  ("🎉🎉 BLOCK FOUND!") and the dashboard/Umbrel block-find widgets were already
+  generic.
+
 ## [1.16.0] — 2026-06-14
 
 ### Added

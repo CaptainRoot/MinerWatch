@@ -463,7 +463,7 @@ async def notify_block_found(
     pretty_network = _format_si_difficulty(network_difficulty)
     title = "🎉🎉 BLOCK FOUND!"
     body = (
-        f"{miner_name} solved a Bitcoin block — "
+        f"{miner_name} solved a block — "
         f"share difficulty {pretty_share} ≥ network {pretty_network}. "
         f"Congratulations!"
     )
