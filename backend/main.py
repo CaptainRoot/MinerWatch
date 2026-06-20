@@ -28,6 +28,7 @@ from . import db
 from . import coin_difficulty
 from . import btc_price
 from . import halo
+from . import panel
 from . import system_info
 from . import umbrel_widgets
 from . import whatsnew
@@ -45,6 +46,7 @@ from .config import FRONTEND_DIR, db_path, get_config, reload_config
 from .discovery import discover_and_register, identify_host, scan_network
 from .miners import DRIVERS, driver_for_record
 from .poller import poller
+from .ambient_temp import ambient
 from .guardian import guardian, GUARDIAN_FAMILIES
 from .log_streamer import log_streamer
 from .mqtt import mqtt_publisher, test_connection as mqtt_test_connection
@@ -960,6 +962,67 @@ async def api_halo() -> dict:
         btc_price=btc_usd,
         btc_change=btc_chg,
     )
+
+
+# ---------------------------------------------------------------------------
+# Panel feed — one consolidated blob polled by the external ESPHome panel
+# ("Monolith"). HTTP successor to the legacy MQTT minerwatch/panel topic: the
+# JSON is built by the pure backend.panel.panel_feed, byte-for-byte identical to
+# the old feed, so the firmware parser is unchanged — only the transport moves
+# from a broker to this endpoint. Auth-exempt via auth.public_paths, same
+# posture as /api/halo and the umbrel widgets (read-only fleet numbers, no
+# control surface). Cheap to poll ~1x/s: reads the live snapshot + the saved
+# display order; the BTC price is cached ~60s so the hot path never blocks on
+# the network.
+# ---------------------------------------------------------------------------
+@app.get("/api/panel")
+async def api_panel() -> dict:
+    miners = await db.list_miners(only_enabled=True)
+    btc_usd, btc_chg, btc_ts = await btc_price.get_btc()
+    btc_at = None
+    if btc_usd is not None and btc_ts:
+        lt = time.localtime(btc_ts)
+        # e.g. "Tue 2 Jun, 05:52" — weekday day month, 24h, server-local.
+        btc_at = (
+            time.strftime("%a ", lt) + str(lt.tm_mday)
+            + time.strftime(" %b, %H:%M", lt)
+        )
+    amb = ambient.snapshot()
+    try:
+        order = await db.get_miner_order()
+    except Exception:  # noqa: BLE001 - a DB hiccup must never break the feed
+        order = []
+    return panel.panel_feed(
+        miners,
+        poller.last_results,
+        btc_usd=btc_usd,
+        btc_at=btc_at,
+        btc_chg=(btc_chg if btc_usd is not None else None),
+        temp_c=amb.current_c,
+        temp_min_c=amb.min_c,
+        temp_max_c=amb.max_c,
+        temp_active=amb.has_data,
+        order=order or None,
+    )
+
+
+# Ambient temperature pushed by an external sensor (replaces the old MQTT
+# relay). The sensor POSTs a plain Celsius reading; MinerWatch keeps a 60s
+# moving average + session min/max (backend/ambient_temp.py) and surfaces it on
+# the panel feed (and, later, the dashboard). Auth-exempt / LAN-trust like the
+# read-only display endpoints — the worst case is a bogus number on a display.
+class AmbientPayload(BaseModel):
+    temp_c: float
+    status: str | None = None
+
+
+@app.post("/api/ambient")
+async def api_ambient(payload: AmbientPayload) -> dict:
+    ok = ambient.update(payload.temp_c)
+    if payload.status is not None:
+        ambient.set_status(payload.status)
+    snap = ambient.snapshot()
+    return {"ok": ok, "current_c": snap.current_c, "has_data": snap.has_data}
 
 
 # ---------- Live per-share streaming (AxeOS only) ----------

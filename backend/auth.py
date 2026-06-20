@@ -166,6 +166,14 @@ def public_paths(path: str) -> bool:
         # numbers (hashrate, miner count, best/last share), no settings
         # and no control surface.
         "/api/halo",
+        # External ESPHome panel ("Monolith"): polls /api/panel ~1×/s without a
+        # session cookie — same read-only posture as /api/halo (coarse fleet
+        # numbers, no control surface). /api/ambient is the one write here: an
+        # external sensor POSTs a plain Celsius reading for the panel's temp
+        # row. LAN-trust by design — the worst case is a bogus number on a
+        # display; it touches no settings and controls no miner.
+        "/api/panel",
+        "/api/ambient",
         "/sw.js",
         "/assets/",
         "/static/",

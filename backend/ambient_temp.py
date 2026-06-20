@@ -95,3 +95,12 @@ class AmbientTemp:
             available=available,
             has_data=self._min is not None,
         )
+
+
+# Process-wide ambient holder fed by ``POST /api/ambient`` (HTTP push from an
+# external sensor) and read by the panel feed (``GET /api/panel``). MinerWatch
+# runs a single app process, so a module-level singleton is the natural shared
+# state — the same lifetime as ``poller.last_results``. Pure in-memory: a
+# restart simply re-seeds it, harmless because the panel only shows a live
+# number plus the session min/max.
+ambient = AmbientTemp()
