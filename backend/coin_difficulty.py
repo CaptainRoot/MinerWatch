@@ -100,3 +100,16 @@ async def get_difficulty(coin: str) -> Optional[float]:
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         log.warning("difficulty fetch for %s errored: %s", coin, exc)
         return _stale(coin)
+
+
+def cached_difficulty(coin: str) -> Optional[float]:
+    """Return the cached difficulty for ``coin`` without any network call.
+
+    A hot, non-blocking read for callers that must never stall on the
+    upstream API — notably the 1 Hz ``/api/halo`` endpoint. Returns the
+    fresh cached value, else the last known (stale) value, else ``None``.
+    Populating the cache is left to :func:`get_difficulty`, which the
+    Analytics "Solo Chance" widget already calls on its own schedule.
+    """
+    coin = (coin or "").strip().lower()
+    return _fresh(coin) or _stale(coin)

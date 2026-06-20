@@ -160,6 +160,12 @@ def public_paths(path: str) -> bool:
         # on the LAN can already reach the login page; this adds the
         # same numbers the Umbrel desktop shows.
         "/api/widgets/",
+        # External read-only fleet display: a device that polls /api/halo
+        # ~1×/s without a session cookie. Same posture as the umbrel
+        # widgets above — a read-only GET exposing only coarse fleet
+        # numbers (hashrate, miner count, best/last share), no settings
+        # and no control surface.
+        "/api/halo",
         "/sw.js",
         "/assets/",
         "/static/",

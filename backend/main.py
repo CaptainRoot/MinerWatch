@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from . import db
 from . import coin_difficulty
+from . import halo
 from . import system_info
 from . import umbrel_widgets
 from . import whatsnew
@@ -890,6 +891,35 @@ async def api_widget_miners() -> dict:
         samples=samples,
         last_seen=last_seen,
         now=time.time(),
+    )
+
+
+# ---------- External fleet display endpoint ----------
+#
+# JSON polled ~1×/second by an external read-only display device.
+# Auth-exempt via auth.public_paths because the device polls without a
+# session cookie, exactly like the umbrel widgets above — it exposes only
+# coarse, read-only fleet numbers and no control surface. All the maths
+# lives in backend/halo.py (pure, unit-tested). coin_difficulty is read
+# from cache only (cached_difficulty) so this hot endpoint never blocks
+# on the network.
+
+
+@app.get("/api/halo")
+async def api_halo() -> dict:
+    """Coarse fleet snapshot: total hashrate, miners online, session and
+    all-time best share, latest share + sequence counter, network diff."""
+    miners = await db.list_miners(only_enabled=True)
+    best = await db.get_fleet_best_records()
+    top = await db.get_fleet_best_records_ranked("alltime", 3)
+    latest_share = await db.get_latest_notable_share()
+    return halo.build_halo_payload(
+        miners=miners,
+        samples=poller.last_results,
+        best=best,
+        top_records=top,
+        latest_share=latest_share,
+        net_diff_fallback=coin_difficulty.cached_difficulty("btc"),
     )
 
 

@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-06-20
+
 ### Added
+
+- **Halo first implementation.**
 
 - **Set the overheat-watchdog temperature per Avalon miner — instead of a fixed
   75°C for everyone.** The server-side overheat watchdog (which forces the fan to

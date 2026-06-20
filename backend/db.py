@@ -2032,6 +2032,30 @@ async def list_notable_shares(miner_id: int, limit: int = 50) -> list[dict[str, 
     return [dict(r) for r in rows]
 
 
+async def get_latest_notable_share() -> dict[str, Any] | None:
+    """Most recent notable share across all *enabled* miners.
+
+    Ordered by timestamp, not difficulty: the caller wants the *latest*
+    share, not the biggest one. Returns
+    ``{id, miner_id, ts, share_difficulty, name}`` or ``None`` when no
+    notable share has been logged yet.
+    """
+    async with connect() as conn:
+        async with conn.execute(
+            """
+            SELECT n.id, n.miner_id, n.ts, n.share_difficulty,
+                   COALESCE(m.name, '—') AS name
+            FROM notable_shares n
+            JOIN miners m ON m.id = n.miner_id
+            WHERE m.enabled = 1
+            ORDER BY n.ts DESC
+            LIMIT 1
+            """
+        ) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
 # ---------- Guardian (runtime frequency governor) ----------
 # Per-miner knobs for the Guardian live on the `miners` row (so they ride
 # along with get_miner/list_miners' SELECT *). Only the writer needs a
