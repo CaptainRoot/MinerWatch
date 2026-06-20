@@ -905,6 +905,39 @@ async def api_widget_miners() -> dict:
 # on the network.
 
 
+def _halo_live_shares(miners: list[dict]) -> dict[int, dict]:
+    """Per-miner live per-share state for AxeOS miners, from log_streamer.
+
+    For each supported miner we read the in-memory share stream: the
+    running submitted-share count (drives a per-share share_seq) and the
+    newest *submitted* share's difficulty + arrival time (drives a
+    per-share last_diff). Miners without a live stream are simply absent,
+    and halo.build_halo_payload falls back to the poller aggregates for
+    them. Read-only and cheap: no DB, no network.
+    """
+    out: dict[int, dict] = {}
+    for m in miners:
+        if not log_streamer.is_supported(m.get("family")):
+            continue
+        st = log_streamer.stats(m["id"])
+        if not st:
+            continue
+        last_diff = None
+        last_ts = st.get("last_event_ts")
+        for ev in reversed(log_streamer.recent(m["id"])):
+            if ev.get("submitted"):
+                last_diff = ev.get("diff")
+                last_ts = ev.get("ts")
+                break
+        out[m["id"]] = {
+            "submitted_total": st.get("submitted_total") or 0,
+            "last_diff": last_diff,
+            "last_ts": last_ts,
+            "name": m.get("name"),
+        }
+    return out
+
+
 @app.get("/api/halo")
 async def api_halo() -> dict:
     """Coarse fleet snapshot: total hashrate, miners online, session and
@@ -920,6 +953,7 @@ async def api_halo() -> dict:
         top_records=top,
         latest_share=latest_share,
         net_diff_fallback=coin_difficulty.cached_difficulty("btc"),
+        live_shares=_halo_live_shares(miners),
     )
 
 

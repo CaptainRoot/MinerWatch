@@ -159,6 +159,56 @@ def test_share_seq_never_rewinds_on_miner_reboot():
     assert c["share_seq"] == b["share_seq"] + 5      # resumes ticking immediately
 
 
+# ---------- live per-share feed (AxeOS) ----------
+
+def _live(submitted_total, last_diff, last_ts, name="Lucky"):
+    return {
+        "submitted_total": submitted_total,
+        "last_diff": last_diff,
+        "last_ts": last_ts,
+        "name": name,
+    }
+
+
+def test_live_last_share_wins_over_notable_when_newer():
+    miners = [_miner(1, "Lucky")]
+    samples = {1: _sample()}
+    notable = {"share_difficulty": 9_000_000.0, "name": "OldNotable", "ts": 1000}
+    live = {1: _live(50, 1_234_567.0, 2000, name="Lucky")}
+    out = _build(miners=miners, samples=samples, latest_share=notable, live_shares=live)
+    assert out["last_diff"] == 1_234_567.0
+    assert out["miner"] == "Lucky"
+
+
+def test_notable_wins_when_live_is_older():
+    miners = [_miner(1, "Lucky")]
+    samples = {1: _sample()}
+    notable = {"share_difficulty": 9_000_000.0, "name": "BigOne", "ts": 5000}
+    live = {1: _live(50, 1_000.0, 1000, name="Lucky")}
+    out = _build(miners=miners, samples=samples, latest_share=notable, live_shares=live)
+    assert out["last_diff"] == 9_000_000.0
+    assert out["miner"] == "BigOne"
+
+
+def test_share_seq_uses_submitted_total_for_axeos():
+    miners = [_miner(1, "Lucky")]
+    reset_share_seq()
+    s1 = build_halo_payload(miners, {1: _sample(accepted=999)}, _best(), [], None, None,
+                            live_shares={1: _live(200, 5.0, 10)})
+    s2 = build_halo_payload(miners, {1: _sample(accepted=999)}, _best(), [], None, None,
+                            live_shares={1: _live(207, 5.0, 11)})
+    assert s2["share_seq"] - s1["share_seq"] == 7    # submitted_total drove it, not accepted
+
+
+def test_share_seq_mixed_fleet_live_plus_accepted():
+    miners = [_miner(1, "Axe"), _miner(2, "Avalon")]
+    reset_share_seq()
+    samples = {1: _sample(accepted=999), 2: _sample(accepted=100)}
+    live = {1: _live(50, 5.0, 10)}                   # only miner 1 streams per-share
+    out = build_halo_payload(miners, samples, _best(), [], None, None, live_shares=live)
+    assert out["share_seq"] == 150                   # 50 submitted + 100 accepted
+
+
 if __name__ == "__main__":
     import traceback
 

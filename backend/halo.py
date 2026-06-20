@@ -70,6 +70,41 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _pick_last_share(
+    live_shares: Mapping[int, Mapping[str, Any]],
+    latest_share: Mapping[str, Any] | None,
+    best_diff: float,
+    session: Mapping[str, Any],
+) -> tuple[float, str]:
+    """Pick (difficulty, miner_name) of the most recent share to show.
+
+    Prefers the live per-share feed (the newest *submitted* share across
+    AxeOS miners); falls back to the most recent persisted notable share,
+    then to the session best record. The live feed is far more frequent,
+    so on an AxeOS fleet it effectively always wins.
+    """
+    live_ts: float | None = None
+    live_diff: float | None = None
+    live_name: Any = None
+    for lv in (live_shares or {}).values():
+        ts = _num(lv.get("last_ts"))
+        diff = _num(lv.get("last_diff"))
+        if ts is None or diff is None:
+            continue
+        if live_ts is None or ts > live_ts:
+            live_ts, live_diff, live_name = ts, diff, lv.get("name")
+
+    notable_ts = _num(latest_share.get("ts")) if latest_share else None
+    notable_diff = _num(latest_share.get("share_difficulty")) if latest_share else None
+    notable_name = latest_share.get("name") if latest_share else None
+
+    if live_diff is not None and (notable_ts is None or live_ts >= notable_ts):
+        return live_diff, str(live_name or "—")
+    if notable_diff is not None:
+        return notable_diff, str(notable_name or "—")
+    return best_diff, str(session.get("miner_name") or "—")
+
+
 def build_halo_payload(
     miners: list[Mapping[str, Any]],
     samples: Mapping[int, Any],
@@ -77,6 +112,7 @@ def build_halo_payload(
     top_records: list[Mapping[str, Any]],
     latest_share: Mapping[str, Any] | None,
     net_diff_fallback: float | None,
+    live_shares: Mapping[int, Mapping[str, Any]] | None = None,
     floor: float = DEFAULT_FLOOR_DIFF,
 ) -> dict[str, Any]:
     """Build the exact JSON object the ``/api/halo`` consumer expects.
@@ -88,31 +124,47 @@ def build_halo_payload(
     ``latest_share``   fleet-wide most recent notable share, or ``None``
     ``net_diff_fallback`` cached BTC network difficulty, used only when no
                           miner reports a live one (never triggers a fetch)
+    ``live_shares``    per-miner live per-share state for AxeOS miners,
+                       keyed by miner id, each
+                       ``{"submitted_total": int, "last_diff": float,
+                       "last_ts": float, "name": str}``. Drives a
+                       per-share ``last_diff`` and ``share_seq``; miners
+                       without an entry fall back to poller aggregates.
     """
+    live_shares = live_shares or {}
     total_ths = 0.0
     online_count = 0
-    accepted_sum = 0
+    raw_seq = 0
     net_live: float | None = None
 
     for m in miners:
         sample = samples.get(m["id"])
-        if not (sample and getattr(sample, "online", False)):
-            continue
-        online_count += 1
-        # hashrate_ths is already TH/s in the poller sample — no unit
-        # conversion needed (the metrics table stores the same TH/s value).
-        hr = _num(getattr(sample, "hashrate_ths", None))
-        if hr is not None:
-            total_ths += hr
-        acc = getattr(sample, "accepted", None)
-        if acc is not None:
-            try:
-                accepted_sum += int(acc)
-            except (TypeError, ValueError):
-                pass
-        nd = _num(getattr(sample, "network_difficulty", None))
-        if nd and (net_live is None or nd > net_live):
-            net_live = nd
+        online = bool(sample and getattr(sample, "online", False))
+        live = live_shares.get(m["id"])
+
+        if online:
+            online_count += 1
+            # hashrate_ths is already TH/s in the poller sample — no unit
+            # conversion needed (the metrics table stores the same value).
+            hr = _num(getattr(sample, "hashrate_ths", None))
+            if hr is not None:
+                total_ths += hr
+            nd = _num(getattr(sample, "network_difficulty", None))
+            if nd and (net_live is None or nd > net_live):
+                net_live = nd
+
+        # share_seq source, per miner: prefer the live per-share counter
+        # (AxeOS: +1 per submitted share) and fall back to the poller's
+        # cumulative accepted count for miners with no live stream.
+        if live is not None:
+            raw_seq += int(live.get("submitted_total") or 0)
+        elif online:
+            acc = getattr(sample, "accepted", None)
+            if acc is not None:
+                try:
+                    raw_seq += int(acc)
+                except (TypeError, ValueError):
+                    pass
 
     net_diff = net_live or _num(net_diff_fallback) or DEFAULT_NET_DIFF
 
@@ -124,12 +176,7 @@ def build_halo_payload(
     top = [_num(r.get("value")) or 0.0 for r in (top_records or [])][:3]
     top += [0.0] * (3 - len(top))
 
-    if latest_share:
-        last_diff = _num(latest_share.get("share_difficulty")) or best_diff
-        miner_name = str(latest_share.get("name") or "—")
-    else:
-        last_diff = best_diff
-        miner_name = str(session.get("miner_name") or "—")
+    last_diff, miner_name = _pick_last_share(live_shares, latest_share, best_diff, session)
 
     return {
         "last_diff": last_diff,
@@ -142,5 +189,5 @@ def build_halo_payload(
         "ths": round(total_ths, 3),
         "miners": online_count,
         "online": online_count > 0,
-        "share_seq": _advance_share_seq(accepted_sum),
+        "share_seq": _advance_share_seq(raw_seq),
     }
