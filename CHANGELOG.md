@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.2] — 2026-06-20
+
+### Added
+
+- **Halo Bitcoin price.**
+
 ## [1.18.1] — 2026-06-20
 
 ### Changed

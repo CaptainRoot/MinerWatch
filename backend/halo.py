@@ -113,6 +113,8 @@ def build_halo_payload(
     latest_share: Mapping[str, Any] | None,
     net_diff_fallback: float | None,
     live_shares: Mapping[int, Mapping[str, Any]] | None = None,
+    btc_price: float | None = None,
+    btc_change: float | None = None,
     floor: float = DEFAULT_FLOOR_DIFF,
 ) -> dict[str, Any]:
     """Build the exact JSON object the ``/api/halo`` consumer expects.
@@ -130,6 +132,10 @@ def build_halo_payload(
                        "last_ts": float, "name": str}``. Drives a
                        per-share ``last_diff`` and ``share_seq``; miners
                        without an entry fall back to poller aggregates.
+    ``btc_price``      current BTC price in USD, or ``None``; emitted as
+                       ``btc_price`` rounded to an integer, omitted when None
+    ``btc_change``     signed 24h % change, or ``None``; emitted as
+                       ``btc_change`` (2 decimals), omitted when None
     """
     live_shares = live_shares or {}
     total_ths = 0.0
@@ -178,7 +184,7 @@ def build_halo_payload(
 
     last_diff, miner_name = _pick_last_share(live_shares, latest_share, best_diff, session)
 
-    return {
+    payload: dict[str, Any] = {
         "last_diff": last_diff,
         "best_diff": best_diff,
         "best_alltime": best_alltime,
@@ -191,3 +197,15 @@ def build_halo_payload(
         "online": online_count > 0,
         "share_seq": _advance_share_seq(raw_seq),
     }
+
+    # Bitcoin price block shown on the device. Included only when known so
+    # a cold/failed price cache leaves the device on its last value rather
+    # than flashing $0.
+    usd = _num(btc_price)
+    if usd is not None:
+        payload["btc_price"] = round(usd)
+    chg = _num(btc_change)
+    if chg is not None:
+        payload["btc_change"] = round(chg, 2)
+
+    return payload

@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from . import db
 from . import coin_difficulty
+from . import btc_price
 from . import halo
 from . import system_info
 from . import umbrel_widgets
@@ -946,6 +947,8 @@ async def api_halo() -> dict:
     best = await db.get_fleet_best_records()
     top = await db.get_fleet_best_records_ranked("alltime", 3)
     latest_share = await db.get_latest_notable_share()
+    btc_price.ensure_fresh()
+    btc_usd, btc_chg = btc_price.cached_btc()
     return halo.build_halo_payload(
         miners=miners,
         samples=poller.last_results,
@@ -954,6 +957,8 @@ async def api_halo() -> dict:
         latest_share=latest_share,
         net_diff_fallback=coin_difficulty.cached_difficulty("btc"),
         live_shares=_halo_live_shares(miners),
+        btc_price=btc_usd,
+        btc_change=btc_chg,
     )
 
 

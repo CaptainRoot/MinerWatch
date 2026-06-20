@@ -18,6 +18,7 @@ spot price and the panel simply hides the change). Mirrors the
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Optional, Tuple
@@ -37,6 +38,9 @@ _DAY_S = 24 * 60 * 60
 
 # Process-wide cache: usd, signed 24h change %, and the fetch epoch.
 _cache: dict = {"usd": None, "chg": None, "ts": 0}
+
+# Single in-flight background refresh, scheduled by ensure_fresh().
+_refresh_task: Optional[asyncio.Task] = None
 
 
 async def _fetch(now: int) -> Tuple[Optional[float], Optional[float]]:
@@ -98,6 +102,41 @@ async def get_btc() -> Tuple[Optional[float], Optional[float], int]:
     return _cache["usd"], _cache["chg"], _cache["ts"]
 
 
+def cached_btc() -> Tuple[Optional[float], Optional[float]]:
+    """Return the cached ``(usd, change_pct)`` without any network call.
+
+    A hot, non-blocking read for callers that must never stall on the
+    upstream API — notably the 1 Hz ``/api/halo`` endpoint. Returns
+    ``(None, None)`` until the first successful fetch. Pair with
+    :func:`ensure_fresh` to keep the cache warm lazily.
+    """
+    return _cache["usd"], _cache["chg"]
+
+
+def ensure_fresh() -> None:
+    """Kick a background refresh if the cache is stale — non-blocking.
+
+    Safe to call at high frequency: it never awaits the network and never
+    starts more than one fetch at a time. The current caller reads
+    whatever :func:`cached_btc` already holds (possibly ``None`` on a cold
+    start); the fresh value lands a moment later for subsequent reads.
+    Requires a running event loop; it is a no-op when there isn't one.
+    """
+    global _refresh_task
+    now = int(time.time())
+    if _cache["usd"] is not None and (now - _cache["ts"]) < _CACHE_TTL_S:
+        return
+    if _refresh_task is not None and not _refresh_task.done():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    _refresh_task = loop.create_task(get_btc())
+
+
 def _reset_cache_for_tests() -> None:
     """Clear the module cache (used by unit tests)."""
+    global _refresh_task
     _cache.update(usd=None, chg=None, ts=0)
+    _refresh_task = None

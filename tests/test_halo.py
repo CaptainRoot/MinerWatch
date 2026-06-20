@@ -209,6 +209,26 @@ def test_share_seq_mixed_fleet_live_plus_accepted():
     assert out["share_seq"] == 150                   # 50 submitted + 100 accepted
 
 
+# ---------- Bitcoin price block ----------
+
+def test_btc_fields_included_and_rounded_when_known():
+    out = _build(miners=[], samples={}, btc_price=70770.42, btc_change=-3.94)
+    assert out["btc_price"] == 70770                 # rounded to integer
+    assert out["btc_change"] == -3.94
+
+
+def test_btc_fields_omitted_when_unknown():
+    out = _build(miners=[], samples={})
+    assert "btc_price" not in out
+    assert "btc_change" not in out
+
+
+def test_btc_change_omitted_when_only_price_known():
+    out = _build(miners=[], samples={}, btc_price=65000, btc_change=None)
+    assert out["btc_price"] == 65000
+    assert "btc_change" not in out
+
+
 if __name__ == "__main__":
     import traceback
 
