@@ -22,7 +22,7 @@ from . import db, alerts
 from .log_streamer import log_streamer
 from .miners import driver_for_record
 from .miners.base import MinerSample
-from .mqtt import mqtt_publisher
+from .ambient_temp import ambient
 
 log = logging.getLogger("minerwatch.poller")
 
@@ -163,20 +163,13 @@ class Poller:
         # Evaluate alerts after we've saved everything
         await alerts.evaluate(out)
 
-        # Publish to MQTT (Home Assistant / ESPHome). No-op unless enabled
-        # and connected; defensive so a broker hiccup never breaks polling.
-        try:
-            await mqtt_publisher.publish_fleet(miners, out)
-        except Exception:  # noqa: BLE001
-            log.debug("mqtt publish skipped", exc_info=True)
-
-        # Persist the relayed ambient (room) temperature as a fleet-wide
+        # Persist the pushed ambient (room) temperature as a fleet-wide
         # time-series — one row per cycle — so the per-miner History chart
         # can overlay it. Only when a fresh reading is available, mirroring
-        # the live card/panel: a stale or disabled relay simply writes
+        # the live card/panel: a stale or absent feed simply writes
         # nothing, leaving a gap in the line rather than a flat zero.
         try:
-            amb = mqtt_publisher.ambient_snapshot()
+            amb = ambient.snapshot()
             if amb.available and amb.current_c is not None:
                 await db.insert_ambient_metric(ts, round(float(amb.current_c), 1))
         except Exception:  # noqa: BLE001

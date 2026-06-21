@@ -43,7 +43,7 @@ export function HistoryCharts({ minerId, family }: Props) {
   const toTs = now;
 
   const { data, isLoading } = useMinerMetrics(minerId, fromTs, toTs);
-  // Room temperature relayed over MQTT, fetched for the same window. It's
+  // Room temperature relayed over HTTP, fetched for the same window. It's
   // fleet-wide (one sensor), so the same series overlays every miner's
   // Temperature chart. Absent relay → empty points → no extra line drawn.
   const { data: ambientData } = useAmbientHistory(fromTs, toTs);
@@ -238,7 +238,7 @@ export function HistoryCharts({ minerId, family }: Props) {
             />
             <Line type="monotone" dataKey="tempChip" stroke="#fb923c" strokeWidth={2} dot={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="tempVr" stroke="#facc15" strokeWidth={2} dot={false} isAnimationActive={false} />
-            {/* Room temperature relayed over MQTT — only when the relay has
+            {/* Room temperature relayed over HTTP — only when the relay has
                 data. Dashed cool-blue to read as "environment, not device",
                 and connectNulls so a brief relay gap doesn't fragment it. */}
             {hasAmbient && (

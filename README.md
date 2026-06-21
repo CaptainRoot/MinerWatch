@@ -137,12 +137,11 @@ comfortable opening a terminal but not necessarily developers.
   expires (crash-safe across restarts). One-click from the *Donate*
   sidebar entry. Design notes:
   [docs/donate-hashrate-design.md](docs/donate-hashrate-design.md)
-- **Optional MQTT publisher** for Home Assistant — connects to a broker
-  you already run and pushes a retained state blob per miner, with HA
-  MQTT-discovery so each miner auto-appears as an HA device, plus optional
-  flat scalar topics for ESP32 / ESPHome panels. Self-disables if not
-  configured. Full guide:
-  [docs/home-assistant-integration.md](docs/home-assistant-integration.md)
+- **External display feed** — a read-only `GET /api/panel` endpoint serves a
+  compact fleet snapshot (per-miner hashrate / temps / power, BTC price, ambient
+  temperature) for a wall-mounted ESP32 touch panel to poll over HTTP. No broker
+  and nothing to configure; an external sensor can push room temperature via
+  `POST /api/ambient`.
 - **Multi-channel alerts**: Web Push (VAPID) for native OS notifications,
   *and* a Telegram bot that delivers to any phone or desktop without HTTPS
   — both channels are independent kill-switches in the UI
@@ -505,8 +504,6 @@ Highlights:
   The legacy `storage.retention_days` is honoured as an alias for the
   1-minute tier so older configs keep working
 - `auth.enabled`, `auth.password` — turn on password protection
-- `mqtt.*` — optional Home Assistant / MQTT publisher (off by default;
-  see [docs/home-assistant-integration.md](docs/home-assistant-integration.md))
 
 Every key is documented inline in
 [config.example.yaml](config.example.yaml), and all of them are also
@@ -756,7 +753,7 @@ Done:
 - [x] In-app Donate dialog (BTC address + client-side QR + copy) and
       Donate-hashrate flow (temporary solo.ckpool repoint + auto-revert)
 - [x] Guardian VR-temperature frequency governor (AxeOS / Nerd\*)
-- [x] MQTT publisher + Home Assistant MQTT-discovery
+- [x] External HTTP display feed (`/api/panel`) for ESP32 touch panels
 - [x] LuxOS driver (Antminer S19 / S21, Whatsminer) — read-only monitoring
 
 ## Contributing

@@ -56,7 +56,7 @@ export function useMiners() {
 }
 
 // Persisted fleet display order (see `useMinerOrder` for the consumer).
-// The backend applies the same list to the `minerwatch/panel` MQTT blob,
+// The backend applies the same list to the `/api/panel` feed,
 // so the ESP32 panel mirrors the dashboard arrangement. Slow cadence on
 // purpose: the order only changes when someone drags a card, and the
 // default refetch-on-focus already covers the cross-window case.
@@ -218,7 +218,7 @@ export function useSetBlockFindHidden() {
   });
 }
 
-// Ambient temperature relayed from the optional MQTT sensor — same value
+// Ambient temperature pushed by an external sensor — same value
 // the ESP32 panel shows. Polled at the standard 5s fleet cadence; the
 // backend read is a cheap in-memory snapshot.
 export function useAmbientTemp() {
@@ -565,13 +565,6 @@ export function usePurgeAllPush() {
 export function useTelegramTest() {
   return useMutation({
     mutationFn: () => api('/api/telegram/test', { method: 'POST' }),
-  });
-}
-
-export function useMqttTest() {
-  return useMutation({
-    mutationFn: () =>
-      api<{ ok: true; detail?: string }>('/api/mqtt/test', { method: 'POST' }),
   });
 }
 

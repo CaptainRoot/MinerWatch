@@ -3,7 +3,7 @@
 
 The ESP32 panels can't talk HTTPS comfortably (the Cheap-Yellow-Display has no
 PSRAM and is already tight on RAM with LVGL), so MinerWatch fetches everything
-here and ships it to the panel over the MQTT feed it already consumes. We use
+here and ships it to the panel over the /api/panel feed it already consumes. We use
 mempool.space — the same upstream the network-difficulty fallback in
 ``alerts.py`` uses:
 

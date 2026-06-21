@@ -49,7 +49,6 @@ from .poller import poller
 from .ambient_temp import ambient
 from .guardian import guardian, GUARDIAN_FAMILIES
 from .log_streamer import log_streamer
-from .mqtt import mqtt_publisher, test_connection as mqtt_test_connection
 from .wallet_watch import wallet_watcher
 from . import updater
 
@@ -153,9 +152,6 @@ async def on_startup() -> None:
     # that auto-reverts on expiry. See backend/donations.py.
     await donation_controller.catch_up_on_boot()
     await donation_controller.start()
-    # Optional MQTT publisher (Home Assistant / ESPHome). Self-disables when
-    # mqtt.enabled is false or the aiomqtt dependency is missing.
-    await mqtt_publisher.start()
     # Watched Bitcoin addresses: notifies on new confirmed incoming
     # transactions via mempool.space. No-op while the address list in
     # Settings → Alerts is empty. See backend/wallet_watch.py.
@@ -165,7 +161,6 @@ async def on_startup() -> None:
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     await wallet_watcher.stop()
-    await mqtt_publisher.stop()
     await donation_controller.stop()
     await log_streamer.stop()
     await guardian.stop()
@@ -459,7 +454,7 @@ async def api_list_miners() -> dict:
 class MinerOrderPayload(BaseModel):
     """Custom fleet display order — list of sanitized-MAC ids.
 
-    Same stable ids the panel feed publishes (``mqtt.sanitize_mac``):
+    Same stable ids the panel feed publishes (``panel.sanitize_mac``):
     lowercase MAC without separators, or ``mw<db_id>`` when no MAC is
     known. The dashboard sends the order it *displays*; the server
     merges it with what's stored so entries of temporarily removed
@@ -482,7 +477,7 @@ async def api_get_miner_order() -> dict:
 async def api_set_miner_order(payload: MinerOrderPayload) -> dict:
     """Save the fleet display order.
 
-    The stored order also drives the ``<base>/panel`` MQTT feed, so the
+    The stored order also drives the ``/api/panel`` feed, so the
     ESP32 panel mirrors the dashboard arrangement on the next poll
     cycle — no firmware involvement. Returns the merged order as stored.
     """
@@ -791,16 +786,16 @@ async def api_fleet_best_difficulty_top(
 
 @app.get("/api/fleet/ambient_temp")
 async def api_fleet_ambient_temp() -> dict:
-    """Ambient temperature relayed from the optional MQTT sensor.
+    """Ambient temperature pushed by an external sensor (POST /api/ambient).
 
     Mirrors the bottom row of the ESP32 panel so the dashboard shows the
-    same reading. ``has_data`` is False when the relay is disabled or no
-    value has arrived yet, and the dashboard then hides the card.
+    same reading. ``has_data`` is False when nothing has been pushed yet,
+    and the dashboard then hides the card.
     ``current_c`` is a 60s moving average and may be null (stale) while
     ``min_c`` / ``max_c`` persist for the session. Values are rounded to
     one decimal, exactly as the panel feed publishes them.
     """
-    snap = mqtt_publisher.ambient_snapshot()
+    snap = ambient.snapshot()
 
     def _r(value: float | None) -> float | None:
         return round(float(value), 1) if value is not None else None
@@ -1933,19 +1928,13 @@ async def api_get_settings() -> dict:
     # without ever revealing the secret.
     alerts_view = asdict(cfg.alerts)
     alerts_view["telegram_token_set"] = bool(alerts_view.pop("telegram_bot_token", "").strip())
-    # MQTT view: same posture as the Telegram token — never echo the broker
-    # password back. Replace it with a boolean and expose the live connection
-    # state so the UI can show "connected" without revealing the secret.
-    mqtt_view = asdict(cfg.mqtt)
-    mqtt_view["mqtt_password_set"] = bool(mqtt_view.pop("password", "").strip())
-    mqtt_view["connected"] = mqtt_publisher.connected
     # Sanitize the raw stored map too: anything sensitive (password,
     # bot token) gets stripped here. Existing callers don't rely on
     # these specific keys being present.
     stored = {
         k: v
         for k, v in (await db.all_settings()).items()
-        if k not in {"auth.password", "alerts.telegram_bot_token", "mqtt.password"}
+        if k not in {"auth.password", "alerts.telegram_bot_token"}
     }
     return {
         "current": {
@@ -1954,7 +1943,6 @@ async def api_get_settings() -> dict:
             "storage": asdict(cfg.storage),
             "network": asdict(cfg.network),
             "auth_enabled": cfg.auth.enabled,
-            "mqtt": mqtt_view,
         },
         "stored": stored,
     }
@@ -1966,28 +1954,7 @@ async def api_post_settings(payload: SettingsPayload) -> dict:
     for key, value in payload.overrides.items():
         await db.set_setting(key, str(value))
     cfg.apply_overrides(payload.overrides)
-    # Live-apply MQTT changes by bouncing the publisher, so the user can see
-    # it connect/disconnect right after saving without restarting the app.
-    if any(k.startswith("mqtt.") for k in payload.overrides):
-        try:
-            await mqtt_publisher.stop()
-            await mqtt_publisher.start()
-        except Exception:  # noqa: BLE001
-            log.exception("failed to restart MQTT publisher after settings change")
     return {"ok": True}
-
-
-@app.post("/api/mqtt/test")
-async def api_mqtt_test() -> dict:
-    """Try connecting to the configured broker (Save first, then Test).
-
-    Mirrors /api/telegram/test: a short connect + publish that confirms the
-    broker host/credentials work, surfacing the broker's own error to the UI.
-    """
-    ok, detail = await mqtt_test_connection()
-    if not ok:
-        raise HTTPException(status_code=400, detail=detail)
-    return {"ok": True, "detail": detail}
 
 
 @app.post("/api/settings/reload")

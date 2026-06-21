@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Tests for the MQTT consolidated panel feed (backend/mqtt.panel_feed).
+"""Tests for the consolidated panel feed (backend/panel.panel_feed).
 
-Pure-function tests — no broker, no I/O. The panel feed is the single
-``<base>/panel`` blob the ESPHome touch panel subscribes to. Runs under
-pytest, or standalone: ``python tests/test_mqtt_panel_feed.py``.
+Pure-function tests — no I/O. The panel feed is the single ``/api/panel``
+blob the ESPHome touch panel polls over HTTP. Runs under pytest, or
+standalone: ``python tests/test_panel_feed.py``.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from backend.miners.base import MinerSample  # noqa: E402
-from backend.mqtt import _num, panel_feed  # noqa: E402
+from backend.panel import _num, panel_feed  # noqa: E402
 
 
 def _sample(**kw) -> MinerSample:
@@ -64,7 +64,7 @@ def test_panel_feed_shape_names_and_values() -> None:
     assert b["hr"] is None                    # offline / no data -> null
     assert b["vr"] is None                    # VR not reported -> null
 
-    # Must be JSON-serialisable (exactly what the publisher does).
+    # Must be JSON-serialisable (exactly what the endpoint returns).
     assert json.loads(json.dumps(feed)) == feed
 
 
@@ -165,7 +165,7 @@ def test_panel_feed_order_skips_stale_ids() -> None:
 
 def test_panel_feed_no_order_is_byte_identical() -> None:
     # Backward compatibility: no stored order (None or empty) must
-    # reproduce today's output exactly, BTC/temp blocks included.
+    # reproduce the default output exactly, BTC/temp blocks included.
     miners, samples = _order_fixture()
     kwargs = dict(
         btc_usd=70996.4, btc_chg=-3.927, btc_at="Tue 2 Jun, 05:52",

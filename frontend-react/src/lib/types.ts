@@ -244,7 +244,7 @@ export interface MinerListResponse {
 
 // Persisted fleet display order — sanitized-MAC ids (lowercase MAC
 // without separators, or `mw<db_id>` when no MAC is known). The same
-// list drives the dashboard grid and the ESP32 panel MQTT feed.
+// list drives the dashboard grid and the ESP32 panel feed.
 export interface MinerOrderResponse {
   order: string[];
 }
@@ -446,8 +446,8 @@ export interface BlockFindsResponse {
   block_finds: BlockFind[];
 }
 
-// Ambient temperature relayed by MinerWatch from the optional MQTT
-// sensor topic — the same value shown on the ESP32 panel's bottom row.
+// Ambient temperature pushed to MinerWatch by an external sensor
+// (HTTP) — the same value shown on the ESP32 panel's bottom row.
 // `current_c` is a 60s moving average and is null when the reading is
 // stale (panel shows "-"); `min_c` / `max_c` are session extremes.
 // `has_data` is false when the relay is off or nothing has arrived yet,
@@ -486,8 +486,8 @@ export interface MetricsRangeResponse {
   metrics: MetricSample[];
 }
 
-// One stored ambient (room) temperature sample, relayed from the optional
-// MQTT sensor. Fleet-wide, so there is no miner_id — see the History tab
+// One stored ambient (room) temperature sample, pushed by an external
+// sensor (HTTP). Fleet-wide, so there is no miner_id — see the History tab
 // "Temperature" overlay. `temp_c` is the bucket average on the rollup tiers.
 export interface AmbientHistoryPoint {
   ts: number;
@@ -556,25 +556,6 @@ export interface SettingsCurrent {
     scan_timeout: number;
   };
   auth_enabled: boolean;
-  mqtt?: {
-    enabled: boolean;
-    host: string;
-    port: number;
-    username: string;
-    base_topic: string;
-    discovery_prefix: string;
-    qos: number;
-    retain: boolean;
-    discovery_enabled: boolean;
-    publish_flat_topics: boolean;
-    allow_controls: boolean;
-    publish_interval_s: number;
-    tls: boolean;
-    ambient_temp_topic?: string;
-    ambient_temp_status_topic?: string;
-    mqtt_password_set?: boolean;
-    connected?: boolean;
-  };
 }
 
 export interface SettingsResponse {

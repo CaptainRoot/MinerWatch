@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS metrics_1h (
 
 CREATE INDEX IF NOT EXISTS idx_metrics_1h_ts ON metrics_1h(ts);
 
--- Ambient (room) temperature relayed from a separate MQTT sensor.
+-- Ambient (room) temperature pushed by an external sensor (HTTP).
 -- Fleet-wide: there is a single probe, so unlike `metrics` there is no
 -- `miner_id` — one value per poll cycle. Mirrors the tiered retention of
 -- `metrics` so the per-miner History chart can overlay the room
@@ -1561,13 +1561,13 @@ async def all_settings() -> dict[str, str]:
 # ---------- Miner display order ----------
 
 # Custom fleet display order, shared by the dashboard grid and the
-# `<base>/panel` MQTT feed (ESP32 panel). Stored in the same `settings`
+# `/api/panel` feed (ESP32 panel). Stored in the same `settings`
 # key/value table as the runtime overrides, but with the `_` prefix that
 # marks internal state (like `_tier_migration_done`): `apply_overrides`
 # skips those keys, so this can never leak into the config dataclasses.
 #
 # The value is a JSON array of *stable* miner identifiers — the
-# sanitized-MAC ids produced by `mqtt.sanitize_mac` (`"a1b2c3d4e5f6"`,
+# sanitized-MAC ids produced by `panel.sanitize_mac` (`"a1b2c3d4e5f6"`,
 # or `"mw<db_id>"` for devices without a known MAC). Keying by MAC means
 # a miner that is deleted and later re-added keeps its slot: same
 # hardware, same MAC, same position.

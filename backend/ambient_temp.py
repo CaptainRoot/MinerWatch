@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Ambient temperature relay for the ESP32 panel.
 
-Some setups have a separate sensor (e.g. an Arduino/Grove probe) publishing a
-plain-text Celsius value to its own MQTT topic on the same broker MinerWatch
-uses. Rather than wiring that into every panel, MinerWatch can subscribe to it,
-keep a small rolling state, and ship the result inside the panel feed.
+Some setups have a separate sensor (e.g. an Arduino/Grove probe). It POSTs a
+plain-text Celsius value to MinerWatch's ``/api/ambient`` endpoint; MinerWatch
+keeps a small rolling state and ships the result inside the panel feed, so no
+panel needs the sensor wired in.
 
 State kept here (mirrors a field-tested receiver):
   * current  — mean of the values seen in the last ``WINDOW_S`` seconds;
@@ -12,14 +12,12 @@ State kept here (mirrors a field-tested receiver):
                average), so a brief spike still registers;
   * available — true only if a valid value arrived within ``AVAIL_S`` seconds.
                When false the panel shows "-" for the current value but keeps
-               min/max. Availability is based on data *freshness* only, NOT on
-               the status topic: a sensor that's truly offline stops sending, so
-               the reading goes stale on its own — while a stale *retained*
-               "offline" (a common Arduino LWT delivered the moment we
-               subscribe) must never hide a live reading.
+               min/max. Availability is based on data *freshness* only: a sensor
+               that's truly offline stops POSTing, so the reading goes stale on
+               its own.
 
-No I/O here — the MQTT client feeds ``update()`` / ``set_status()`` and reads
-``snapshot()`` when publishing. Pure and unit-testable.
+No I/O here — ``POST /api/ambient`` feeds ``update()`` / ``set_status()`` and
+the panel feed / dashboard read ``snapshot()``. Pure and unit-testable.
 """
 from __future__ import annotations
 

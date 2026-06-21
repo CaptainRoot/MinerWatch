@@ -432,7 +432,7 @@ async def _install_requirements(reqs_file: Path) -> bool:
     """Install ``requirements.txt`` into the running interpreter's environment.
 
     Used by the self-update flow when dependencies change, so a new dep (e.g.
-    ``aiomqtt``) is present even if the relaunch is a uvicorn ``--reload``
+    ``pywebpush``) is present even if the relaunch is a uvicorn ``--reload``
     worker respawn that never re-runs ``start.sh``. Best-effort: returns
     ``True`` on success, ``False`` (logged) on any failure — the caller still
     restarts and ``start.sh`` retries pip on relaunch.

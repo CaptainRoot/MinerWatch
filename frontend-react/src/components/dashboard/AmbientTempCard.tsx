@@ -14,7 +14,7 @@ import { useAmbientTemp } from '@/api/hooks';
  *   - Min always light blue, Max always red, the prefixes stay muted;
  *   - no reading → grey "-".
  *
- * The data is relayed by MinerWatch from the optional MQTT sensor topic,
+ * The data is relayed by MinerWatch from an external sensor (HTTP push),
  * so the card only appears when a value has actually been received
  * (``has_data``) — exactly like the panel hides the row otherwise.
  */

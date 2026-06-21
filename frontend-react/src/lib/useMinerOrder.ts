@@ -7,7 +7,7 @@ import { useMinerOrderQuery, useResetMinerOrder, useSaveMinerOrder } from '@/api
 // Contract:
 //   - The canonical order lives in the BACKEND (`/api/miners/order`,
 //     settings key `_miner_order`): one list shared by every browser
-//     and — crucially — by the `minerwatch/panel` MQTT feed, so the
+//     and — crucially — by the `/api/panel` feed, so the
 //     ESP32 panel draws its cards in the same arrangement as the
 //     dashboard. (It used to live in localStorage, per-browser, which
 //     the panel could never see.)
@@ -34,7 +34,7 @@ import { useMinerOrderQuery, useResetMinerOrder, useSaveMinerOrder } from '@/api
 const LEGACY_KEY = 'mw-miner-order';
 const CACHE_KEY = 'mw-miner-order-macs';
 
-/** Mirror of backend ``mqtt.sanitize_mac``: strip everything that is
+/** Mirror of backend ``panel.sanitize_mac``: strip everything that is
  *  not alphanumeric, lowercase; fall back to ``mw<db_id>``. The two
  *  implementations must agree or the panel and the grid would order
  *  by different keys. */

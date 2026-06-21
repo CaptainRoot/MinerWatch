@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.3] — 2026-06-21
+
+### Added
+
+- **HTTP panel feed.** New read-only `GET /api/panel` endpoint serves the
+  consolidated fleet snapshot the external ESP32 touch panel renders (built by
+  the pure `backend/panel.py`), plus `POST /api/ambient` to push room
+  temperature from an external sensor. Both are LAN-trust / auth-exempt like
+  `/api/halo`.
+
+### Removed
+
+- **MQTT publisher and Home Assistant integration.** The panel now reads its
+  data over HTTP instead of an MQTT broker, and ambient temperature is pushed
+  via `POST /api/ambient` instead of an MQTT topic. The `mqtt.*` settings, the
+  Settings → MQTT tab, the `aiomqtt` dependency and the Home Assistant
+  MQTT-discovery support are gone.
+
 ## [1.18.2] — 2026-06-20
 
 ### Added
