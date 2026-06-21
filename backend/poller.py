@@ -165,11 +165,12 @@ class Poller:
 
         # Persist the pushed ambient (room) temperature as a fleet-wide
         # time-series — one row per cycle — so the per-miner History chart
-        # can overlay it. Only when a fresh reading is available, mirroring
-        # the live card/panel: a stale or absent feed simply writes
+        # can overlay it. With multiple sensors this stores the primary
+        # (first live) one; per-sensor history is a later phase. Only when a
+        # fresh reading is available: a stale or absent feed simply writes
         # nothing, leaving a gap in the line rather than a flat zero.
         try:
-            amb = ambient.snapshot()
+            amb = ambient.primary_snapshot()
             if amb.available and amb.current_c is not None:
                 await db.insert_ambient_metric(ts, round(float(amb.current_c), 1))
         except Exception:  # noqa: BLE001

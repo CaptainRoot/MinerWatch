@@ -22,7 +22,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import db
 from . import coin_difficulty
@@ -46,7 +46,7 @@ from .config import FRONTEND_DIR, db_path, get_config, reload_config
 from .discovery import discover_and_register, identify_host, scan_network
 from .miners import DRIVERS, driver_for_record
 from .poller import poller
-from .ambient_temp import ambient
+from .ambient_temp import ambient, VALID_MIN_C, VALID_MAX_C
 from .guardian import guardian, GUARDIAN_FAMILIES
 from .log_streamer import log_streamer
 from .wallet_watch import wallet_watcher
@@ -786,27 +786,33 @@ async def api_fleet_best_difficulty_top(
 
 @app.get("/api/fleet/ambient_temp")
 async def api_fleet_ambient_temp() -> dict:
-    """Ambient temperature pushed by an external sensor (POST /api/ambient).
+    """Ambient temperature pushed by external sensors (POST /api/ambient).
 
-    Mirrors the bottom row of the ESP32 panel so the dashboard shows the
-    same reading. ``has_data`` is False when nothing has been pushed yet,
-    and the dashboard then hides the card.
-    ``current_c`` is a 60s moving average and may be null (stale) while
-    ``min_c`` / ``max_c`` persist for the session. Values are rounded to
-    one decimal, exactly as the panel feed publishes them.
+    Returns one entry per live sensor under ``sensors`` so the dashboard can
+    render a row each (``name | current | min | max``). Each ``current_c`` is
+    a 60s moving average and may be null (stale) while ``min_c`` / ``max_c``
+    persist for the session; ``name`` / ``sensor_id`` identify the source.
+    At cold start — or once every sensor has gone silent past the eviction
+    window — the list is simply empty and the dashboard hides the card.
+    Values are rounded to one decimal, as the panel feed publishes them.
     """
-    snap = ambient.snapshot()
 
     def _r(value: float | None) -> float | None:
         return round(float(value), 1) if value is not None else None
 
-    return {
-        "current_c": _r(snap.current_c),
-        "min_c": _r(snap.min_c),
-        "max_c": _r(snap.max_c),
-        "available": snap.available,
-        "has_data": snap.has_data,
-    }
+    sensors = [
+        {
+            "sensor_id": s.sensor_id,
+            "name": s.name,
+            "current_c": _r(s.current_c),
+            "min_c": _r(s.min_c),
+            "max_c": _r(s.max_c),
+            "available": s.available,
+            "has_data": s.has_data,
+        }
+        for s in ambient.snapshot_all()
+    ]
+    return {"sensors": sensors}
 
 
 @app.get("/api/fleet/ambient_temp/history")
@@ -982,7 +988,9 @@ async def api_panel() -> dict:
             time.strftime("%a ", lt) + str(lt.tm_mday)
             + time.strftime(" %b, %H:%M", lt)
         )
-    amb = ambient.snapshot()
+    # The wall panel still shows a single temperature row; feed it the primary
+    # (first live) sensor for now. Multi-sensor on the panel is a later phase.
+    amb = ambient.primary_snapshot()
     try:
         order = await db.get_miner_order()
     except Exception:  # noqa: BLE001 - a DB hiccup must never break the feed
@@ -1001,23 +1009,50 @@ async def api_panel() -> dict:
     )
 
 
-# Ambient temperature pushed by an external sensor (replaces the old MQTT
-# relay). The sensor POSTs a plain Celsius reading; MinerWatch keeps a 60s
-# moving average + session min/max (backend/ambient_temp.py) and surfaces it on
-# the panel feed (and, later, the dashboard). Auth-exempt / LAN-trust like the
-# read-only display endpoints — the worst case is a bogus number on a display.
+# Ambient temperature pushed by an external sensor (the official ESP32-C3
+# sensor; replaces the old MQTT relay). Every ~5s the device POSTs
+# {temp_c, name, sensor_id}; MinerWatch keeps a 60s moving average + session
+# min/max per sensor (backend/ambient_temp.py) and surfaces one row each on
+# the dashboard. Auth-exempt / LAN-trust like the read-only display endpoints
+# — the worst case is a bogus number on a display.
+#
+# Strict contract (this is the hardware's source of truth, no legacy
+# publishers): unknown/legacy fields (incl. the old ``status``) are rejected,
+# ``temp_c`` must be a finite number in [-50, 125], ``name`` is 1–40 chars
+# after trimming, and ``sensor_id`` is exactly 12 lowercase hex digits.
 class AmbientPayload(BaseModel):
-    temp_c: float
-    status: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    temp_c: float = Field(allow_inf_nan=False, ge=VALID_MIN_C, le=VALID_MAX_C)
+    name: str
+    sensor_id: str = Field(pattern=r"^[0-9a-f]{12}$")
+
+    @field_validator("name")
+    @classmethod
+    def _name_trimmed_1_40(cls, v: str) -> str:
+        v = v.strip()
+        if not (1 <= len(v) <= 40):
+            raise ValueError("name must be 1-40 characters after trimming")
+        return v
 
 
 @app.post("/api/ambient")
 async def api_ambient(payload: AmbientPayload) -> dict:
-    ok = ambient.update(payload.temp_c)
-    if payload.status is not None:
-        ambient.set_status(payload.status)
-    snap = ambient.snapshot()
-    return {"ok": ok, "current_c": snap.current_c, "has_data": snap.has_data}
+    # Validation already happened in AmbientPayload, so ``ok`` is True unless
+    # the registry is full (cap). The firmware treats a 2xx response as a
+    # success only if the compact JSON contains "ok":true — FastAPI's default
+    # JSONResponse is compact, so do not wrap this in a pretty-printing or
+    # gzipping response or genuine sensors will treat every send as failed.
+    ok = ambient.update(payload.sensor_id, payload.name, payload.temp_c)
+    snap = ambient.sensor_snapshot(payload.sensor_id)
+    current = round(float(snap.current_c), 2) if snap and snap.current_c is not None else None
+    return {
+        "ok": ok,
+        "current_c": current,
+        "has_data": bool(snap and snap.has_data),
+        "name": snap.name if snap else None,
+        "sensor_id": payload.sensor_id,
+    }
 
 
 # ---------- Live per-share streaming (AxeOS only) ----------

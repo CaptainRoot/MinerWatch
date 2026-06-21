@@ -2,10 +2,10 @@ import { Card } from '@/components/ui/card';
 import { useAmbientTemp } from '@/api/hooks';
 
 /**
- * Ambient temperature card — a 1:1 port of the ESP32 panel's bottom row.
+ * Ambient temperature card — one row per external sensor:
+ * "<name> | Temperature X°C | Min: Y°C | Max: Z°C".
  *
- * Same texts ("Temperature: X°C | Min: Y°C | Max: Z°C") and almost the
- * same colour logic as ``common/minerwatch-core.yaml`` in the ESPHome
+ * Colour logic mirrors ``common/minerwatch-core.yaml`` in the ESPHome
  * panel — the one exception is the warm stop, retuned to the app's
  * amber-400 so the yellow matches the chip-temp readouts:
  *   - current value: a blue→teal→green→amber→red gradient interpolated
@@ -14,9 +14,9 @@ import { useAmbientTemp } from '@/api/hooks';
  *   - Min always light blue, Max always red, the prefixes stay muted;
  *   - no reading → grey "-".
  *
- * The data is relayed by MinerWatch from an external sensor (HTTP push),
- * so the card only appears when a value has actually been received
- * (``has_data``) — exactly like the panel hides the row otherwise.
+ * Sensors push over HTTP (POST /api/ambient), so the card only appears once
+ * at least one sensor has sent a reading; each sensor keeps its own row,
+ * sorted by name on the backend so positions stay stable across polls.
  */
 
 const NODATA_COLOR = '#9AA0A6';
@@ -62,27 +62,40 @@ function fmtTemp(v: number | null): string {
 export function AmbientTempCard() {
   const { data } = useAmbientTemp();
 
-  // Show only once a reading exists — mirrors the panel hiding the row
-  // (and matches the dashboard's "only when data is present" rule).
-  if (!data || !data.has_data) return null;
-
-  const curColor = data.current_c === null ? NODATA_COLOR : gradientColor(data.current_c);
+  // One row per sensor that has produced a reading. Show the card only when
+  // at least one sensor has data (matches the dashboard's "only when data is
+  // present" rule). The backend sorts by (name, sensor_id), so rows keep a
+  // stable position across the 5s polls.
+  const sensors = (data?.sensors ?? []).filter((s) => s.has_data);
+  if (sensors.length === 0) return null;
 
   return (
     <Card className="p-4">
-      <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-base sm:text-lg">
-        <span className="text-muted-foreground">Temperature:</span>
-        <span className="font-semibold tabular-nums" style={{ color: curColor }}>
-          {fmtTemp(data.current_c)}
-        </span>
-        <span className="text-muted-foreground">| Min:</span>
-        <span className="font-semibold tabular-nums" style={{ color: MIN_COLOR }}>
-          {fmtTemp(data.min_c)}
-        </span>
-        <span className="text-muted-foreground">| Max:</span>
-        <span className="font-semibold tabular-nums" style={{ color: MAX_COLOR }}>
-          {fmtTemp(data.max_c)}
-        </span>
+      <div className="flex flex-col gap-y-1.5">
+        {sensors.map((s) => {
+          const curColor =
+            s.current_c === null ? NODATA_COLOR : gradientColor(s.current_c);
+          return (
+            <div
+              key={s.sensor_id}
+              className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-base sm:text-lg"
+            >
+              <span className="font-semibold">{s.name}</span>
+              <span className="text-muted-foreground">| Temperature</span>
+              <span className="font-semibold tabular-nums" style={{ color: curColor }}>
+                {fmtTemp(s.current_c)}
+              </span>
+              <span className="text-muted-foreground">| Min:</span>
+              <span className="font-semibold tabular-nums" style={{ color: MIN_COLOR }}>
+                {fmtTemp(s.min_c)}
+              </span>
+              <span className="text-muted-foreground">| Max:</span>
+              <span className="font-semibold tabular-nums" style={{ color: MAX_COLOR }}>
+                {fmtTemp(s.max_c)}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </Card>
   );

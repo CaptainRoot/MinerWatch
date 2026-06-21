@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type {
   AlertsResponse,
+  AmbientFleet,
   AmbientHistoryResponse,
-  AmbientTemp,
   AuthStatus,
   BestRecordsResponse,
   BestRecordsTopResponse,
@@ -218,14 +218,14 @@ export function useSetBlockFindHidden() {
   });
 }
 
-// Ambient temperature pushed by an external sensor — same value
-// the ESP32 panel shows. Polled at the standard 5s fleet cadence; the
-// backend read is a cheap in-memory snapshot.
+// Ambient temperature pushed by external sensors — one entry per sensor.
+// Polled at the standard 5s fleet cadence; the backend read is a cheap
+// in-memory snapshot.
 export function useAmbientTemp() {
   return useQuery({
     queryKey: ['fleet-ambient-temp'],
     queryFn: ({ signal }) =>
-      api<AmbientTemp>('/api/fleet/ambient_temp', { signal }),
+      api<AmbientFleet>('/api/fleet/ambient_temp', { signal }),
     refetchInterval: FIVE_SECONDS,
   });
 }

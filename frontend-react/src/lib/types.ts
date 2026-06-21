@@ -446,18 +446,25 @@ export interface BlockFindsResponse {
   block_finds: BlockFind[];
 }
 
-// Ambient temperature pushed to MinerWatch by an external sensor
-// (HTTP) — the same value shown on the ESP32 panel's bottom row.
+// One ambient sensor pushing readings to MinerWatch over HTTP.
 // `current_c` is a 60s moving average and is null when the reading is
-// stale (panel shows "-"); `min_c` / `max_c` are session extremes.
-// `has_data` is false when the relay is off or nothing has arrived yet,
-// and the dashboard hides the card in that case.
-export interface AmbientTemp {
+// stale (shown as "-"); `min_c` / `max_c` are session extremes.
+// `name` is the user-set label and `sensor_id` the device identity.
+export interface AmbientSensor {
+  sensor_id: string;
+  name: string;
   current_c: number | null;
   min_c: number | null;
   max_c: number | null;
   available: boolean;
   has_data: boolean;
+}
+
+// GET /api/fleet/ambient_temp returns one entry per live sensor. An empty
+// list means nothing has arrived yet (or every sensor went silent), and the
+// dashboard hides the card in that case.
+export interface AmbientFleet {
+  sensors: AmbientSensor[];
 }
 
 // The backend returns one row per bucket as { bucket_ts, total_ths }.
