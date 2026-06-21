@@ -39,6 +39,9 @@ export interface MinerRecord {
   // null when unassigned. Drives the room-temperature overlay on the History
   // "Temperature" chart — no assignment means no ambient line.
   ambient_sensor_id: string | null;
+  // Cached display name of the assigned sensor, so the room label stays
+  // friendly even while that sensor is offline. Null when unassigned.
+  ambient_sensor_name: string | null;
 }
 
 export interface MetricSample {

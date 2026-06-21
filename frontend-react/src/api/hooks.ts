@@ -439,10 +439,10 @@ export function useShutdownMiner() {
 export function useSetAmbientSensor(minerId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (sensorId: string | null) =>
+    mutationFn: (assignment: { sensorId: string | null; name: string | null }) =>
       api(`/api/miners/${minerId}/ambient-sensor`, {
         method: 'POST',
-        body: { sensor_id: sensorId },
+        body: { sensor_id: assignment.sensorId, name: assignment.name },
       }),
     onSuccess: () => {
       // Refresh both the miner detail (History overlay) and the fleet list

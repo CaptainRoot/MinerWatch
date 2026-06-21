@@ -5,7 +5,6 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { fmtNum, fmtRelative, fmtUptime, tempTone, FAMILY_LABEL } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useAmbientTemp } from '@/api/hooks';
 import type { MinerListEntry } from '@/lib/types';
 
 interface Props {
@@ -21,12 +20,11 @@ export function MinerCard({ miner }: Props) {
 
   // Assigned room sensor, shown read-only after the model in the footer —
   // only when this miner actually has one assigned (no clutter otherwise).
-  // The friendly name lives in the live snapshot; fall back to the raw id
-  // if the sensor is currently offline (and thus nameless).
-  const { data: ambientFleet } = useAmbientTemp();
+  // The name is cached on the miner (kept fresh by the poller), so it stays
+  // friendly even while the sensor is offline; fall back to the id only if a
+  // name was never captured.
   const roomName = miner.ambient_sensor_id
-    ? (ambientFleet?.sensors.find((s) => s.sensor_id === miner.ambient_sensor_id)?.name
-        ?? miner.ambient_sensor_id)
+    ? (miner.ambient_sensor_name ?? miner.ambient_sensor_id)
     : null;
 
   // Status: live state first (poller verdict), then DB last_status as fallback

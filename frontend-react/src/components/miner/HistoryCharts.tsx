@@ -28,6 +28,9 @@ interface Props {
   /** Ambient sensor (room) assigned to this miner, or null. Its stored
    *  series is overlaid on the Temperature chart; null draws no line. */
   ambientSensorId?: string | null;
+  /** Cached display name of the assigned sensor, used for the overlay label
+   *  and the picker even when that sensor is offline. */
+  ambientSensorName?: string | null;
 }
 
 const RANGES: Array<{ label: string; seconds: number }> = [
@@ -43,7 +46,7 @@ const RANGES: Array<{ label: string; seconds: number }> = [
  * range. Powered by Recharts so axes, tooltip, and responsiveness come
  * for free. Range selector mirrors the vanilla one.
  */
-export function HistoryCharts({ minerId, family, ambientSensorId }: Props) {
+export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorName }: Props) {
   const [range, setRange] = useState(86400);
   const vrSeriesLabel = family === 'canaan' ? 'Air out' : 'VR';
   const now = Math.floor(Date.now() / 1000);
@@ -59,29 +62,36 @@ export function HistoryCharts({ minerId, family, ambientSensorId }: Props) {
   const { data: ambientFleet } = useAmbientTemp();
   const setAmbientSensor = useSetAmbientSensor(minerId);
 
-  const roomName = useMemo(() => {
-    const found = (ambientFleet?.sensors ?? []).find(
-      (s) => s.sensor_id === ambientSensorId,
-    );
-    return found?.name ?? 'Room';
-  }, [ambientFleet, ambientSensorId]);
+  // Overlay label uses the miner's cached room name (always available, even
+  // when the sensor is offline); falls back to a generic label otherwise.
+  const roomName = ambientSensorName ?? 'Room';
 
   const sensorOptions = useMemo(() => {
     const opts = (ambientFleet?.sensors ?? []).map((s) => ({
       id: s.sensor_id,
       label: s.name,
     }));
-    // Keep the assigned sensor selectable even while it is offline.
+    // Keep the assigned sensor selectable even while it is offline, labelled
+    // by its cached name instead of the raw id.
     if (ambientSensorId && !opts.some((o) => o.id === ambientSensorId)) {
-      opts.push({ id: ambientSensorId, label: `${ambientSensorId} (offline)` });
+      opts.push({
+        id: ambientSensorId,
+        label: `${ambientSensorName ?? ambientSensorId} (offline)`,
+      });
     }
     return opts;
-  }, [ambientFleet, ambientSensorId]);
+  }, [ambientFleet, ambientSensorId, ambientSensorName]);
 
   const roomSelector = (
     <select
       value={ambientSensorId ?? ''}
-      onChange={(e) => setAmbientSensor.mutate(e.target.value || null)}
+      onChange={(e) => {
+        const id = e.target.value || null;
+        const name = id
+          ? (ambientFleet?.sensors.find((s) => s.sensor_id === id)?.name ?? null)
+          : null;
+        setAmbientSensor.mutate({ sensorId: id, name });
+      }}
       title="Room sensor overlaid on this chart"
       className="h-6 rounded-md border border-border bg-card px-1.5 text-[11px] text-foreground"
     >

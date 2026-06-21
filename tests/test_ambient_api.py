@@ -138,6 +138,12 @@ def test_assignment_accepts_hex_and_null() -> None:
     assert AmbientSensorAssignment().sensor_id is None
 
 
+def test_assignment_normalizes_name() -> None:
+    assert AmbientSensorAssignment(sensor_id="0000000000aa", name="  Garage  ").name == "Garage"
+    assert AmbientSensorAssignment(sensor_id="0000000000aa", name="   ").name is None
+    assert AmbientSensorAssignment(sensor_id="0000000000aa", name="x" * 50).name == "x" * 40
+
+
 @pytest.mark.parametrize(
     "bad",
     [

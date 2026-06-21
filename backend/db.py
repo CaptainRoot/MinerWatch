@@ -442,6 +442,9 @@ def _init_db_sync() -> None:
             # Ambient sensor assignment: which room sensor (12-hex sensor_id)
             # this miner sits in, so its History chart overlays that series.
             "ALTER TABLE miners ADD COLUMN ambient_sensor_id TEXT",
+            # Last-known display name of the assigned sensor, cached so the
+            # room label stays friendly even while that sensor is offline.
+            "ALTER TABLE miners ADD COLUMN ambient_sensor_name TEXT",
             # Per-trophy dashboard visibility (see block_finds DDL).
             "ALTER TABLE block_finds ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
         ]:
@@ -524,17 +527,36 @@ async def set_offline_muted(miner_id: int, muted: bool) -> None:
         await conn.commit()
 
 
-async def set_ambient_sensor(miner_id: int, sensor_id: str | None) -> None:
+async def set_ambient_sensor(
+    miner_id: int, sensor_id: str | None, name: str | None = None
+) -> None:
     """Assign (or clear) the ambient sensor whose room this miner sits in.
 
-    ``sensor_id`` is a 12-hex device id, or None to unassign. Stored so the
-    miner's History "Temperature" chart can overlay that room's series; an
-    offline sensor simply yields no overlay until it reports again.
+    ``sensor_id`` is a 12-hex device id, or None to unassign. ``name`` caches
+    the sensor's display name so the room label stays friendly even when that
+    sensor is offline; it is cleared together with the id. The poller keeps it
+    fresh for live sensors (see ``refresh_assigned_sensor_name``).
     """
     async with connect() as conn:
         await conn.execute(
-            "UPDATE miners SET ambient_sensor_id = ?, updated_at = ? WHERE id = ?",
-            (sensor_id, now_ts(), miner_id),
+            "UPDATE miners SET ambient_sensor_id = ?, ambient_sensor_name = ?, "
+            "updated_at = ? WHERE id = ?",
+            (sensor_id, name if sensor_id else None, now_ts(), miner_id),
+        )
+        await conn.commit()
+
+
+async def refresh_assigned_sensor_name(sensor_id: str, name: str) -> None:
+    """Update the cached room name on every miner assigned to ``sensor_id``.
+
+    Called each poll cycle for live sensors, so a renamed sensor (or a miner
+    assigned before the name was cached) self-heals to the current name
+    without the user having to reassign.
+    """
+    async with connect() as conn:
+        await conn.execute(
+            "UPDATE miners SET ambient_sensor_name = ? WHERE ambient_sensor_id = ?",
+            (name, sensor_id),
         )
         await conn.commit()
 

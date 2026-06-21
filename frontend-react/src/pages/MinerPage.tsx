@@ -127,6 +127,7 @@ export function MinerPage() {
             minerId={idNum}
             family={data.miner.family}
             ambientSensorId={data.miner.ambient_sensor_id}
+            ambientSensorName={data.miner.ambient_sensor_name}
           />
         </TabsContent>
 

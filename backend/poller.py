@@ -170,6 +170,10 @@ class Poller:
         # nothing, leaving a gap in its line rather than a flat zero.
         try:
             for amb in ambient.snapshot_all():
+                # Keep the cached room name fresh on any miner using this
+                # sensor (heals renames + assignments made before the cache).
+                if amb.sensor_id and amb.name:
+                    await db.refresh_assigned_sensor_name(amb.sensor_id, amb.name)
                 if amb.available and amb.current_c is not None and amb.sensor_id:
                     await db.insert_ambient_metric(
                         amb.sensor_id, ts, round(float(amb.current_c), 1)

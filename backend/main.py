@@ -1962,6 +1962,9 @@ class AmbientSensorAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sensor_id: str | None = None
+    # Optional cached display name (the picker sends the sensor's current
+    # name). Display-only, so it is normalized leniently rather than 422'd.
+    name: str | None = None
 
     @field_validator("sensor_id")
     @classmethod
@@ -1972,6 +1975,14 @@ class AmbientSensorAssignment(BaseModel):
             raise ValueError("sensor_id must be 12 lowercase hex digits, or null")
         return v
 
+    @field_validator("name")
+    @classmethod
+    def _trim_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()[:40]
+        return v or None
+
 
 @app.post("/api/miners/{miner_id}/ambient-sensor")
 async def api_miner_ambient_sensor(
@@ -1980,14 +1991,16 @@ async def api_miner_ambient_sensor(
     """Assign the ambient sensor (room) this miner sits in, or null to clear.
 
     The miner's History "Temperature" chart then overlays that sensor's
-    stored series. The sensor need not be online now — an offline sensor
-    just yields no overlay line until it reports again.
+    stored series, and the dashboard card shows the cached room name. The
+    sensor need not be online now — an offline sensor just yields no overlay
+    line until it reports again; the cached name keeps the label friendly.
     """
     miner = await db.get_miner(miner_id)
     if not miner:
         raise HTTPException(404, "miner not found")
-    await db.set_ambient_sensor(miner_id, payload.sensor_id)
-    return {"ok": True, "miner_id": miner_id, "sensor_id": payload.sensor_id}
+    name = payload.name if payload.sensor_id else None
+    await db.set_ambient_sensor(miner_id, payload.sensor_id, name)
+    return {"ok": True, "miner_id": miner_id, "sensor_id": payload.sensor_id, "name": name}
 
 
 # ---------- API: settings ----------

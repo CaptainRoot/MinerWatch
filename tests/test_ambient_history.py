@@ -216,14 +216,20 @@ def test_miner_ambient_sensor_assignment():
         mid = await db.upsert_miner({"name": "Rig", "family": "bitaxe", "host": "10.0.0.1"})
 
         m = await db.get_miner(mid)
-        assert m is not None and "ambient_sensor_id" in m  # column exists
-        assert m["ambient_sensor_id"] is None               # default unassigned
+        assert m is not None and "ambient_sensor_id" in m and "ambient_sensor_name" in m
+        assert m["ambient_sensor_id"] is None and m["ambient_sensor_name"] is None
 
-        await db.set_ambient_sensor(mid, SID)
-        assert (await db.get_miner(mid))["ambient_sensor_id"] == SID
+        await db.set_ambient_sensor(mid, SID, "Garage")
+        m = await db.get_miner(mid)
+        assert m["ambient_sensor_id"] == SID and m["ambient_sensor_name"] == "Garage"
 
-        await db.set_ambient_sensor(mid, None)              # clear
-        assert (await db.get_miner(mid))["ambient_sensor_id"] is None
+        # The poller's refresh heals a rename without the user reassigning.
+        await db.refresh_assigned_sensor_name(SID, "Garage Bench")
+        assert (await db.get_miner(mid))["ambient_sensor_name"] == "Garage Bench"
+
+        await db.set_ambient_sensor(mid, None)              # clear both id and name
+        m = await db.get_miner(mid)
+        assert m["ambient_sensor_id"] is None and m["ambient_sensor_name"] is None
 
     asyncio.run(run())
 
