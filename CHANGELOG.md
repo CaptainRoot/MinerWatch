@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-06-21
+
+### Added
+
+- **Official ESP32-C3 ambient sensors (multi-sensor).** `POST /api/ambient`
+  now follows the official sensor's contract — each device sends
+  `{temp_c, name, sensor_id}` every ~5s — and MinerWatch keeps one rolling
+  series per `sensor_id` (60s average, session min/max, freshness). The
+  dashboard shows one row per sensor (`Name | Temperature | Min | Max`), with a
+  per-sensor cap and stale eviction so the list stays bounded and self-cleaning.
+- **Per-sensor ambient history.** The `ambient_metrics` raw and rollup tables
+  are keyed by `sensor_id`, so each room sensor keeps its own 1h–30d series.
+- **Per-miner room assignment.** A miner can be assigned to a room sensor
+  (`POST /api/miners/{id}/ambient-sensor`); its History "Temperature" chart then
+  overlays that sensor's series (none assigned → no ambient line), and the
+  dashboard miner card shows the assigned room name next to the model.
+
+### Changed
+
+- **`POST /api/ambient` is now strict (breaking).** It requires `temp_c`
+  (a finite number in −50…125 °C), `name` (1–40 characters after trimming) and
+  `sensor_id` (exactly 12 lowercase hex digits), and rejects unknown or legacy
+  fields — including the old `status` — with HTTP 422. There is no
+  compatibility with earlier publishers that sent only `temp_c`.
+- **`GET /api/fleet/ambient_temp` now returns a list (breaking).** The response
+  is `{"sensors": [...]}` with one entry per live sensor (each carrying `name`
+  and `sensor_id`) instead of a single object; at cold start the list is empty.
+
+### Migration
+
+- On first start the ambient history tables are reset to the per-sensor schema.
+  The previous single-series ambient history is discarded (it is low-value and
+  fleet-wide); per-miner metrics are not touched.
+
 ## [1.18.3] — 2026-06-21
 
 ### Added

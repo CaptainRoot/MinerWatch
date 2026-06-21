@@ -140,8 +140,12 @@ comfortable opening a terminal but not necessarily developers.
 - **External display feed** — a read-only `GET /api/panel` endpoint serves a
   compact fleet snapshot (per-miner hashrate / temps / power, BTC price, ambient
   temperature) for a wall-mounted ESP32 touch panel to poll over HTTP. No broker
-  and nothing to configure; an external sensor can push room temperature via
-  `POST /api/ambient`.
+  and nothing to configure.
+- **Ambient temperature sensors** — one or more official ESP32-C3 room sensors
+  push readings over HTTP (`POST /api/ambient`, every ~5s, no broker). The
+  dashboard shows a live row per sensor, each miner can be assigned to a room so
+  its History temperature chart overlays that sensor, and readings are retained
+  as per-sensor history alongside the per-miner metrics.
 - **Multi-channel alerts**: Web Push (VAPID) for native OS notifications,
   *and* a Telegram bot that delivers to any phone or desktop without HTTPS
   — both channels are independent kill-switches in the UI
