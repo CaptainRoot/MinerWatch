@@ -36,10 +36,10 @@ def _sample_info(**overrides):
         "sharesRejected": 0,
         "uptimeSeconds": 66739,
         "responseTime": 12.0,
-        "stratumURL": "192.168.1.100",
+        "stratumURL": "192.0.2.100",
         "stratumPort": 2018,
         "stratumUser": "bc1qprimary.worker",
-        "fallbackStratumURL": "192.168.1.50",
+        "fallbackStratumURL": "192.0.2.50",
         "fallbackStratumPort": 4567,
         "fallbackStratumUser": "bc1qfallback.worker",
         "isUsingFallbackStratum": 1,
@@ -72,8 +72,8 @@ def test_fallback_active_marks_fallback_as_active():
     assert sample.pool_active == "fallback"
 
     # URLs/users are mapped to the right slot.
-    assert primary.url == "192.168.1.100:2018"
-    assert fallback.url == "192.168.1.50:4567"
+    assert primary.url == "192.0.2.100:2018"
+    assert fallback.url == "192.0.2.50:4567"
     assert fallback.user == "bc1qfallback.worker"
 
     # Miner-level counters + ping go to the active (fallback) slot only.

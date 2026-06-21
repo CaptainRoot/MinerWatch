@@ -64,7 +64,7 @@ async def _seed_miner() -> int:
             "family": "bitforge",
             "host": "10.0.0.7",
             "port": 80,
-            "mac": "98:A3:16:CA:3E:E0",
+            "mac": "AA:BB:CC:CA:3E:E0",
         }
     )
 
@@ -500,7 +500,7 @@ def test_identify_treats_invalid_device_model_as_absent():
         "asicCount": 2,
         "smallCoreCount": 2040,
         "hostname": "BitForge",
-        "macAddr": "98:a3:16:ca:3e:e0",
+        "macAddr": "aa:bb:cc:ca:3e:e0",
         "uptimeSeconds": 2302,
         "version": "v1.5-apfix2",
     }

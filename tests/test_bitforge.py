@@ -49,7 +49,7 @@ def _forge_info(**overrides):
         "coreVoltage": 1150,
         "coreVoltageActual": 1142,
         "frequency": 525,
-        "ssid": "homewifi",
+        "ssid": "example-wifi",
         "macAddr": "aa:bb:cc:11:22:33",
         "hostname": "BitForge",
         "wifiStatus": "Connected!",
@@ -114,8 +114,8 @@ def _forge_v10_info(**overrides):
         "coreVoltage": 1160,
         "coreVoltageActual": 1129,
         "frequency": 636,
-        "ssid": "homewifi",
-        "macAddr": "98:a3:16:00:11:22",
+        "ssid": "example-wifi",
+        "macAddr": "aa:bb:cc:00:11:22",
         "hostname": "BitForge",
         "wifiStatus": "Connected!",
         "wifiRSSI": -54,
@@ -128,7 +128,7 @@ def _forge_v10_info(**overrides):
         "asicCount": 2,
         "smallCoreCount": 2040,
         "ASICModel": "BM1370",
-        "stratumURL": "192.168.1.25",
+        "stratumURL": "192.0.2.25",
         "fallbackStratumURL": "eusolo.ckpool.org",
         "stratumPort": 2018,
         "fallbackStratumPort": 3333,
@@ -270,7 +270,7 @@ def test_parse_v10_real_payload():
     firmware average of chiptemp1/2 — 54.125 = avg(52.25, 56)) lands in
     temp_avg_c while temp_chip_c takes the hotter sensor, and the
     SI-string ``bestDiff`` parses."""
-    s = BitForgeDriver("192.168.1.19")._parse(_forge_v10_info())
+    s = BitForgeDriver("192.0.2.19")._parse(_forge_v10_info())
     assert s.family == "bitforge"
     assert s.fan_pct == 63
     assert s.fan_rpm == 3651
@@ -283,7 +283,7 @@ def test_parse_v10_real_payload():
     assert s.best_difficulty == 6.51e6
     assert s.best_difficulty_alltime == 6.51e6
     assert s.asic_count == 2
-    assert s.pool_url == "192.168.1.25:2018"
+    assert s.pool_url == "192.0.2.25:2018"
     assert s.pool_url_fallback == "eusolo.ckpool.org:3333"
     assert s.pool_active == "primary"
 
@@ -368,7 +368,7 @@ def test_identify_bitforge_v10_no_asic_endpoint():
     assert info["family"] == "bitforge"
     assert info["model"] == "BitForge Nano"
     assert info["name"] == "BitForge"
-    assert info["mac"] == "98:A3:16:00:11:22"
+    assert info["mac"] == "AA:BB:CC:00:11:22"
 
 
 def test_identify_stock_bitaxe_unaffected():

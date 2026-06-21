@@ -39,7 +39,7 @@ def _sample_info(**overrides):
         "hostname": "bitaxe",
         "version": "v2.5.0",
         "uptimeSeconds": 66739,
-        "stratumURL": "192.168.1.100",
+        "stratumURL": "192.0.2.100",
         "stratumPort": 2018,
         "stratumUser": "bc1qprimary.worker",
     }

@@ -90,10 +90,10 @@ def test_bitaxe_read_pool_config_maps_fields():
 
     async def fake_info():
         return {
-            "stratumURL": "192.168.1.100",
+            "stratumURL": "192.0.2.100",
             "stratumPort": 2018,
             "stratumUser": "bc1qprimary.worker",
-            "fallbackStratumURL": "192.168.1.50",
+            "fallbackStratumURL": "192.0.2.50",
             "fallbackStratumPort": 4567,
             "fallbackStratumUser": "bc1qfallback.worker",
         }
@@ -101,10 +101,10 @@ def test_bitaxe_read_pool_config_maps_fields():
     drv._system_info = fake_info               # type: ignore[assignment]
     cfg = asyncio.run(drv.read_pool_config())
 
-    assert cfg.url == "192.168.1.100"
+    assert cfg.url == "192.0.2.100"
     assert cfg.port == 2018
     assert cfg.user == "bc1qprimary.worker"
-    assert cfg.fb_url == "192.168.1.50"
+    assert cfg.fb_url == "192.0.2.50"
     assert cfg.fb_port == 4567
     assert cfg.fb_user == "bc1qfallback.worker"
     # AxeOS doesn't expose the password — must come back None.
@@ -185,9 +185,9 @@ def test_bitaxe_active_slot_reports_fallback_when_flag_set():
 
     async def fake_info():
         return {
-            "stratumURL": "192.168.1.100",
+            "stratumURL": "192.0.2.100",
             "stratumPort": 2018,
-            "fallbackStratumURL": "192.168.1.50",
+            "fallbackStratumURL": "192.0.2.50",
             "fallbackStratumPort": 4567,
             "isUsingFallbackStratum": 1,
         }
@@ -201,8 +201,8 @@ def test_bitaxe_active_slot_primary_when_flag_clear_or_no_fallback():
 
     async def info_primary():
         return {
-            "stratumURL": "192.168.1.100", "stratumPort": 2018,
-            "fallbackStratumURL": "192.168.1.50", "fallbackStratumPort": 4567,
+            "stratumURL": "192.0.2.100", "stratumPort": 2018,
+            "fallbackStratumURL": "192.0.2.50", "fallbackStratumPort": 4567,
             "isUsingFallbackStratum": 0,
         }
 
@@ -213,7 +213,7 @@ def test_bitaxe_active_slot_primary_when_flag_clear_or_no_fallback():
     # miner with nowhere to fail over from being mis-tagged as on fallback).
     async def info_flag_no_fb():
         return {
-            "stratumURL": "192.168.1.100", "stratumPort": 2018,
+            "stratumURL": "192.0.2.100", "stratumPort": 2018,
             "fallbackStratumURL": "", "isUsingFallbackStratum": 1,
         }
 
