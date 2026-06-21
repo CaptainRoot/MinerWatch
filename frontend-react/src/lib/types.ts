@@ -35,6 +35,10 @@ export interface MinerRecord {
   // Offline-alert mute (0 | 1). When 1, disconnect alerts are silenced for
   // this miner until it reconnects — see the dashboard banner Mute button.
   offline_muted: number;
+  // Ambient sensor (room) this miner sits in: a 12-hex device sensor_id, or
+  // null when unassigned. Drives the room-temperature overlay on the History
+  // "Temperature" chart — no assignment means no ambient line.
+  ambient_sensor_id: string | null;
 }
 
 export interface MetricSample {

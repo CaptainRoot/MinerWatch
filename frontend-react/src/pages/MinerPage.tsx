@@ -123,7 +123,11 @@ export function MinerPage() {
         </TabsContent>
 
         <TabsContent value="history" className="mt-0">
-          <HistoryCharts minerId={idNum} family={data.miner.family} />
+          <HistoryCharts
+            minerId={idNum}
+            family={data.miner.family}
+            ambientSensorId={data.miner.ambient_sensor_id}
+          />
         </TabsContent>
 
         <TabsContent value="controls" className="mt-0 space-y-4">

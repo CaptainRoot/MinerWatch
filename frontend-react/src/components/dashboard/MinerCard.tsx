@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { fmtNum, fmtRelative, fmtUptime, tempTone, FAMILY_LABEL } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { useAmbientTemp } from '@/api/hooks';
 import type { MinerListEntry } from '@/lib/types';
 
 interface Props {
@@ -17,6 +18,16 @@ interface Props {
  */
 export function MinerCard({ miner }: Props) {
   const lm = miner.last_metric;
+
+  // Assigned room sensor, shown read-only after the model in the footer —
+  // only when this miner actually has one assigned (no clutter otherwise).
+  // The friendly name lives in the live snapshot; fall back to the raw id
+  // if the sensor is currently offline (and thus nameless).
+  const { data: ambientFleet } = useAmbientTemp();
+  const roomName = miner.ambient_sensor_id
+    ? (ambientFleet?.sensors.find((s) => s.sensor_id === miner.ambient_sensor_id)?.name
+        ?? miner.ambient_sensor_id)
+    : null;
 
   // Status: live state first (poller verdict), then DB last_status as fallback
   const status: 'online' | 'offline' | 'pending' | 'standby' = miner.live_online === false
@@ -98,9 +109,17 @@ export function MinerCard({ miner }: Props) {
           <Metric label="Uptime" value={offline ? '—' : fmtUptime(lm?.uptime_s)} unit="" />
         </div>
 
-        <footer className="mt-4 flex items-center justify-between border-t border-border pt-3 text-[11px] text-muted-foreground">
-          <span className="truncate">{miner.model ?? ''}</span>
-          <span>{fmtRelative(lm?.ts)}</span>
+        <footer className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3 text-[11px] text-muted-foreground">
+          <span className="truncate">
+            {miner.model ?? ''}
+            {roomName && (
+              <>
+                {' · '}
+                <span className="text-foreground/70">{roomName}</span>
+              </>
+            )}
+          </span>
+          <span className="shrink-0">{fmtRelative(lm?.ts)}</span>
         </footer>
       </Card>
     </Link>

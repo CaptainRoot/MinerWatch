@@ -439,6 +439,9 @@ def _init_db_sync() -> None:
             # Offline-alert mute (per-miner): suppress disconnect alerts when
             # the miner is powered down on purpose, until it reconnects.
             "ALTER TABLE miners ADD COLUMN offline_muted INTEGER NOT NULL DEFAULT 0",
+            # Ambient sensor assignment: which room sensor (12-hex sensor_id)
+            # this miner sits in, so its History chart overlays that series.
+            "ALTER TABLE miners ADD COLUMN ambient_sensor_id TEXT",
             # Per-trophy dashboard visibility (see block_finds DDL).
             "ALTER TABLE block_finds ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
         ]:
@@ -517,6 +520,21 @@ async def set_offline_muted(miner_id: int, muted: bool) -> None:
         await conn.execute(
             "UPDATE miners SET offline_muted = ?, updated_at = ? WHERE id = ?",
             (1 if muted else 0, now_ts(), miner_id),
+        )
+        await conn.commit()
+
+
+async def set_ambient_sensor(miner_id: int, sensor_id: str | None) -> None:
+    """Assign (or clear) the ambient sensor whose room this miner sits in.
+
+    ``sensor_id`` is a 12-hex device id, or None to unassign. Stored so the
+    miner's History "Temperature" chart can overlay that room's series; an
+    offline sensor simply yields no overlay until it reports again.
+    """
+    async with connect() as conn:
+        await conn.execute(
+            "UPDATE miners SET ambient_sensor_id = ?, updated_at = ? WHERE id = ?",
+            (sensor_id, now_ts(), miner_id),
         )
         await conn.commit()
 

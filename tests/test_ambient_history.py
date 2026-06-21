@@ -208,6 +208,26 @@ def test_migration_resets_old_single_series_schema():
     asyncio.run(run())
 
 
+def test_miner_ambient_sensor_assignment():
+    _use_fresh_db("assign")
+
+    async def run():
+        await db.init_db()
+        mid = await db.upsert_miner({"name": "Rig", "family": "bitaxe", "host": "10.0.0.1"})
+
+        m = await db.get_miner(mid)
+        assert m is not None and "ambient_sensor_id" in m  # column exists
+        assert m["ambient_sensor_id"] is None               # default unassigned
+
+        await db.set_ambient_sensor(mid, SID)
+        assert (await db.get_miner(mid))["ambient_sensor_id"] == SID
+
+        await db.set_ambient_sensor(mid, None)              # clear
+        assert (await db.get_miner(mid))["ambient_sensor_id"] is None
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

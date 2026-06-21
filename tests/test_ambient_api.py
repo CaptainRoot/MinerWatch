@@ -20,7 +20,7 @@ from pydantic import ValidationError  # noqa: E402
 from backend import ambient_temp  # noqa: E402
 from backend import auth  # noqa: E402
 from backend import main as main_mod  # noqa: E402
-from backend.main import AmbientPayload  # noqa: E402
+from backend.main import AmbientPayload, AmbientSensorAssignment  # noqa: E402
 
 VALID = {"temp_c": 23.48, "name": "Ambiente", "sensor_id": "020000000001"}
 
@@ -128,3 +128,26 @@ def test_history_empty_when_no_sensors() -> None:
     out = asyncio.run(main_mod.api_fleet_ambient_temp_history())
     assert out["points"] == []
     assert out["sensor_id"] is None
+
+
+# ---- per-miner room assignment payload contract ----
+
+def test_assignment_accepts_hex_and_null() -> None:
+    assert AmbientSensorAssignment(sensor_id="0000000000aa").sensor_id == "0000000000aa"
+    assert AmbientSensorAssignment(sensor_id=None).sensor_id is None
+    assert AmbientSensorAssignment().sensor_id is None
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"sensor_id": "0000000000AA"},               # uppercase
+        {"sensor_id": "0000000000a"},                # 11 chars
+        {"sensor_id": "0000000000aaa"},              # 13 chars
+        {"sensor_id": "00000000zz01"},               # non-hex
+        {"sensor_id": "0000000000aa", "extra": 1},   # unknown field
+    ],
+)
+def test_assignment_rejects_bad(bad: dict) -> None:
+    with pytest.raises(ValidationError):
+        AmbientSensorAssignment(**bad)

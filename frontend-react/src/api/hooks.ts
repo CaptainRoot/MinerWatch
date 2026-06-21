@@ -104,18 +104,25 @@ export function useMinerMetrics(id: number | undefined, fromTs: number, toTs: nu
   });
 }
 
-// Stored ambient (room) temperature series for the same window as the
-// per-miner metrics, so the History "Temperature" chart can overlay it.
-// Same staleTime as useMinerMetrics — these are range payloads, not the
-// live 5s snapshot (that's useAmbientTemp). `enabled` mirrors the metrics
-// hook so we don't fire a request for an inverted range.
-export function useAmbientHistory(fromTs: number, toTs: number) {
+// Stored ambient (room) temperature series for ONE sensor over the same
+// window as the per-miner metrics, so the History "Temperature" chart can
+// overlay the miner's assigned room. `sensorId` selects which sensor; when
+// it is null/undefined the query is disabled and no ambient line is drawn
+// (a miner with no room assigned shows none). Same staleTime as
+// useMinerMetrics — these are range payloads, not the live 5s snapshot
+// (that's useAmbientTemp).
+export function useAmbientHistory(
+  fromTs: number,
+  toTs: number,
+  sensorId?: string | null,
+) {
   return useQuery({
-    enabled: fromTs < toTs,
-    queryKey: ['ambient-history', fromTs, toTs],
+    enabled: fromTs < toTs && !!sensorId,
+    queryKey: ['ambient-history', fromTs, toTs, sensorId ?? null],
     queryFn: ({ signal }) =>
       api<AmbientHistoryResponse>(
-        `/api/fleet/ambient_temp/history?from_ts=${fromTs}&to_ts=${toTs}`,
+        `/api/fleet/ambient_temp/history?from_ts=${fromTs}&to_ts=${toTs}` +
+          `&sensor_id=${encodeURIComponent(sensorId as string)}`,
         { signal },
       ),
     staleTime: 60_000,
@@ -423,6 +430,25 @@ export function useShutdownMiner() {
       api(`/api/miners/${id}/control/shutdown`, { method: 'POST' }),
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: ['miner', id] });
+    },
+  });
+}
+
+// Assign which ambient sensor (room) a miner sits in — pass null to clear.
+// Invalidates the miner detail so the History chart re-resolves its overlay.
+export function useSetAmbientSensor(minerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sensorId: string | null) =>
+      api(`/api/miners/${minerId}/ambient-sensor`, {
+        method: 'POST',
+        body: { sensor_id: sensorId },
+      }),
+    onSuccess: () => {
+      // Refresh both the miner detail (History overlay) and the fleet list
+      // (the dashboard card's read-only room label) so both reflect the change.
+      qc.invalidateQueries({ queryKey: ['miner', minerId] });
+      qc.invalidateQueries({ queryKey: ['miners'] });
     },
   });
 }

@@ -1958,6 +1958,38 @@ async def api_miner_offline_mute(miner_id: int) -> dict:
     return {"ok": True, "miner_id": miner_id, "muted": True, "acked": acked}
 
 
+class AmbientSensorAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sensor_id: str | None = None
+
+    @field_validator("sensor_id")
+    @classmethod
+    def _hex12_or_none(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if len(v) != 12 or any(c not in "0123456789abcdef" for c in v):
+            raise ValueError("sensor_id must be 12 lowercase hex digits, or null")
+        return v
+
+
+@app.post("/api/miners/{miner_id}/ambient-sensor")
+async def api_miner_ambient_sensor(
+    miner_id: int, payload: AmbientSensorAssignment
+) -> dict:
+    """Assign the ambient sensor (room) this miner sits in, or null to clear.
+
+    The miner's History "Temperature" chart then overlays that sensor's
+    stored series. The sensor need not be online now — an offline sensor
+    just yields no overlay line until it reports again.
+    """
+    miner = await db.get_miner(miner_id)
+    if not miner:
+        raise HTTPException(404, "miner not found")
+    await db.set_ambient_sensor(miner_id, payload.sensor_id)
+    return {"ok": True, "miner_id": miner_id, "sensor_id": payload.sensor_id}
+
+
 # ---------- API: settings ----------
 
 class SettingsPayload(BaseModel):

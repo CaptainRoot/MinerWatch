@@ -13,13 +13,21 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fmtNum } from '@/lib/format';
-import { useAmbientHistory, useMinerMetrics } from '@/api/hooks';
+import {
+  useAmbientHistory,
+  useAmbientTemp,
+  useMinerMetrics,
+  useSetAmbientSensor,
+} from '@/api/hooks';
 
 interface Props {
   minerId: number;
   /** Miner family — canaan relabels the VR series: Avalon has no VR
    *  sensor, the driver feeds the air outlet temp into temp_vr_c. */
   family?: string;
+  /** Ambient sensor (room) assigned to this miner, or null. Its stored
+   *  series is overlaid on the Temperature chart; null draws no line. */
+  ambientSensorId?: string | null;
 }
 
 const RANGES: Array<{ label: string; seconds: number }> = [
@@ -35,7 +43,7 @@ const RANGES: Array<{ label: string; seconds: number }> = [
  * range. Powered by Recharts so axes, tooltip, and responsiveness come
  * for free. Range selector mirrors the vanilla one.
  */
-export function HistoryCharts({ minerId, family }: Props) {
+export function HistoryCharts({ minerId, family, ambientSensorId }: Props) {
   const [range, setRange] = useState(86400);
   const vrSeriesLabel = family === 'canaan' ? 'Air out' : 'VR';
   const now = Math.floor(Date.now() / 1000);
@@ -43,10 +51,48 @@ export function HistoryCharts({ minerId, family }: Props) {
   const toTs = now;
 
   const { data, isLoading } = useMinerMetrics(minerId, fromTs, toTs);
-  // Room temperature relayed over HTTP, fetched for the same window. It's
-  // fleet-wide (one sensor), so the same series overlays every miner's
-  // Temperature chart. Absent relay → empty points → no extra line drawn.
-  const { data: ambientData } = useAmbientHistory(fromTs, toTs);
+
+  // Ambient overlay: the stored series of the room sensor assigned to this
+  // miner — none assigned → no line. The live snapshot supplies the picker's
+  // sensor names and resolves the assigned sensor's label for the tooltip.
+  const { data: ambientData } = useAmbientHistory(fromTs, toTs, ambientSensorId);
+  const { data: ambientFleet } = useAmbientTemp();
+  const setAmbientSensor = useSetAmbientSensor(minerId);
+
+  const roomName = useMemo(() => {
+    const found = (ambientFleet?.sensors ?? []).find(
+      (s) => s.sensor_id === ambientSensorId,
+    );
+    return found?.name ?? 'Room';
+  }, [ambientFleet, ambientSensorId]);
+
+  const sensorOptions = useMemo(() => {
+    const opts = (ambientFleet?.sensors ?? []).map((s) => ({
+      id: s.sensor_id,
+      label: s.name,
+    }));
+    // Keep the assigned sensor selectable even while it is offline.
+    if (ambientSensorId && !opts.some((o) => o.id === ambientSensorId)) {
+      opts.push({ id: ambientSensorId, label: `${ambientSensorId} (offline)` });
+    }
+    return opts;
+  }, [ambientFleet, ambientSensorId]);
+
+  const roomSelector = (
+    <select
+      value={ambientSensorId ?? ''}
+      onChange={(e) => setAmbientSensor.mutate(e.target.value || null)}
+      title="Room sensor overlaid on this chart"
+      className="h-6 rounded-md border border-border bg-card px-1.5 text-[11px] text-foreground"
+    >
+      <option value="">No room</option>
+      {sensorOptions.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
 
   const series = useMemo(() => {
     const rows = data?.metrics ?? [];
@@ -204,6 +250,7 @@ export function HistoryCharts({ minerId, family }: Props) {
           unit="°C"
           isLoading={isLoading}
           hasData={!!tempSeries.length}
+          action={roomSelector}
         >
           <LineChart data={tempSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
@@ -232,7 +279,7 @@ export function HistoryCharts({ minerId, family }: Props) {
               labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
               formatter={(v: number, name: string) => {
                 const label =
-                  name === 'tempChip' ? 'Chip' : name === 'tempVr' ? vrSeriesLabel : 'Room';
+                  name === 'tempChip' ? 'Chip' : name === 'tempVr' ? vrSeriesLabel : roomName;
                 return [`${fmtNum(v, 1)} °C`, label];
               }}
             />
@@ -316,16 +363,21 @@ interface ChartBlockProps {
   isLoading: boolean;
   hasData: boolean;
   children: React.ReactElement;
+  /** Optional control rendered in the block header (e.g. the room picker). */
+  action?: React.ReactNode;
 }
 
-function ChartBlock({ title, unit, isLoading, hasData, children }: ChartBlockProps) {
+function ChartBlock({ title, unit, isLoading, hasData, children, action }: ChartBlockProps) {
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {title}
         </span>
-        <span className="text-[11px] text-muted-foreground">{unit}</span>
+        <div className="flex items-center gap-2">
+          {action}
+          <span className="text-[11px] text-muted-foreground">{unit}</span>
+        </div>
       </div>
       <div className="h-56 w-full">
         {isLoading && !hasData ? (
