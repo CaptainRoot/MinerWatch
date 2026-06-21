@@ -819,15 +819,18 @@ async def api_fleet_ambient_temp() -> dict:
 async def api_fleet_ambient_temp_history(
     from_ts: int = 0,
     to_ts: int = 0,
+    sensor_id: str | None = None,
 ) -> dict:
-    """Time-series of the relayed ambient (room) temperature.
+    """Time-series of a single ambient sensor's relayed temperature.
 
-    Powers the optional third line on each miner's History "Temperature"
+    Powers the optional ambient overlay on a miner's History "Temperature"
     chart. Same range/tier contract as ``/api/miners/{id}/metrics`` so the
     frontend can request the identical window and the resolutions line up.
-    Returns ``points`` as ``[{ts, temp_c}, …]``; an empty list simply means
-    the relay was never configured or no value has been stored yet, in
-    which case the frontend draws no ambient line.
+    ``sensor_id`` selects which sensor; omit it to get the primary (first
+    live) sensor — the interim default until each miner can be assigned to a
+    room. Returns ``points`` as ``[{ts, temp_c}, …]``; an empty list means
+    no sensor was selectable or nothing has been stored yet, and the
+    frontend then draws no ambient line.
     """
     import time as _time
 
@@ -835,11 +838,25 @@ async def api_fleet_ambient_temp_history(
         to_ts = int(_time.time())
     if from_ts == 0:
         from_ts = to_ts - 24 * 3600
-    rows, tier = await db.ambient_metrics_range(from_ts, to_ts)
+
+    if sensor_id is None:
+        sensor_id = ambient.primary_snapshot().sensor_id
+
+    if not sensor_id:
+        return {
+            "from_ts": from_ts,
+            "to_ts": to_ts,
+            "tier": "metrics",
+            "sensor_id": None,
+            "points": [],
+        }
+
+    rows, tier = await db.ambient_metrics_range(from_ts, to_ts, sensor_id)
     return {
         "from_ts": from_ts,
         "to_ts": to_ts,
         "tier": tier,
+        "sensor_id": sensor_id,
         "points": rows,
     }
 

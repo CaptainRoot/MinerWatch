@@ -118,3 +118,13 @@ def test_two_sensors_two_rows_sorted_by_name() -> None:
 
 def test_ambient_endpoint_is_auth_exempt() -> None:
     assert auth.public_paths("/api/ambient") is True
+
+
+# ---- history endpoint resolves the primary sensor / short-circuits empty ----
+
+def test_history_empty_when_no_sensors() -> None:
+    # No live sensors -> primary is None -> empty series without hitting the DB.
+    _fresh_registry()
+    out = asyncio.run(main_mod.api_fleet_ambient_temp_history())
+    assert out["points"] == []
+    assert out["sensor_id"] is None

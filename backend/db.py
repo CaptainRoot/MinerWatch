@@ -140,33 +140,39 @@ CREATE TABLE IF NOT EXISTS metrics_1h (
 
 CREATE INDEX IF NOT EXISTS idx_metrics_1h_ts ON metrics_1h(ts);
 
--- Ambient (room) temperature pushed by an external sensor (HTTP).
--- Fleet-wide: there is a single probe, so unlike `metrics` there is no
--- `miner_id` — one value per poll cycle. Mirrors the tiered retention of
--- `metrics` so the per-miner History chart can overlay the room
--- temperature across the same 1h–30d ranges. `ts` is the unix-second of
--- the cycle and is the primary key (so it is already indexed).
+-- Ambient (room) temperature pushed by external sensors (HTTP).
+-- Per-sensor: one series per device `sensor_id` (a 12-hex MAC-derived id),
+-- one row per poll cycle. Mirrors the tiered retention of `metrics` so a
+-- miner History chart can overlay the temperature of its assigned room
+-- across the same 1h–30d ranges. The primary key is the pair
+-- (sensor_id, ts), so each sensor keeps its own independent series.
 CREATE TABLE IF NOT EXISTS ambient_metrics (
-    ts      INTEGER PRIMARY KEY,   -- unix seconds, one row per cycle
-    temp_c  REAL
+    sensor_id TEXT NOT NULL,
+    ts        INTEGER NOT NULL,
+    temp_c    REAL,
+    PRIMARY KEY (sensor_id, ts)
 );
 
--- Rollup tier #1: 1-minute aggregates of `ambient_metrics`.
+-- Rollup tier #1: 1-minute aggregates of `ambient_metrics`, per sensor.
 CREATE TABLE IF NOT EXISTS ambient_metrics_1m (
-    ts           INTEGER PRIMARY KEY,   -- bucket-start unix timestamp
-    temp_c       REAL,                  -- AVG of the bucket
-    temp_min_c   REAL,                  -- MIN (coldest in the bucket)
-    temp_max_c   REAL,                  -- MAX (warmest in the bucket)
-    sample_count INTEGER NOT NULL
-);
-
--- Rollup tier #2: 1-hour aggregates of `ambient_metrics_1m`.
-CREATE TABLE IF NOT EXISTS ambient_metrics_1h (
-    ts           INTEGER PRIMARY KEY,
+    sensor_id    TEXT NOT NULL,
+    ts           INTEGER NOT NULL,
     temp_c       REAL,
     temp_min_c   REAL,
     temp_max_c   REAL,
-    sample_count INTEGER NOT NULL
+    sample_count INTEGER NOT NULL,
+    PRIMARY KEY (sensor_id, ts)
+);
+
+-- Rollup tier #2: 1-hour aggregates of `ambient_metrics_1m`, per sensor.
+CREATE TABLE IF NOT EXISTS ambient_metrics_1h (
+    sensor_id    TEXT NOT NULL,
+    ts           INTEGER NOT NULL,
+    temp_c       REAL,
+    temp_min_c   REAL,
+    temp_max_c   REAL,
+    sample_count INTEGER NOT NULL,
+    PRIMARY KEY (sensor_id, ts)
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
@@ -451,6 +457,23 @@ def _init_db_sync() -> None:
                 conn.execute(drop_stmt)
             except sqlite3.OperationalError:
                 pass
+
+        # Ambient history went per-sensor (added a sensor_id column and a
+        # composite (sensor_id, ts) primary key). A DB created before this
+        # still carries the old single-series tables; SCHEMA_SQL's
+        # CREATE ... IF NOT EXISTS leaves them untouched, so detect the old
+        # shape and reset the ambient tables. The stored room-temperature
+        # history is intentionally discarded (low-value, fleet-wide); miner
+        # metrics are not touched. Idempotent: once sensor_id exists, no-op.
+        ambient_cols = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(ambient_metrics)").fetchall()
+        ]
+        if ambient_cols and "sensor_id" not in ambient_cols:
+            for table in ("ambient_metrics", "ambient_metrics_1m", "ambient_metrics_1h"):
+                conn.execute(f"DROP TABLE IF EXISTS {table}")
+            for stmt in [s.strip() for s in SCHEMA_SQL.split(";") if "ambient_metrics" in s]:
+                conn.execute(stmt)
     finally:
         conn.close()
 
@@ -651,16 +674,18 @@ async def latest_metric(miner_id: int) -> dict[str, Any] | None:
 
 # ---------- Ambient (room) temperature time-series ----------
 
-async def insert_ambient_metric(ts: int, temp_c: float) -> None:
-    """Append one relayed ambient-temperature sample (fleet-wide).
+async def insert_ambient_metric(sensor_id: str, ts: int, temp_c: float) -> None:
+    """Append one relayed ambient-temperature sample for one sensor.
 
-    ``INSERT OR REPLACE`` keyed on ``ts`` so two cycles that happen to
-    land on the same second collapse to one row rather than erroring.
+    ``INSERT OR REPLACE`` keyed on ``(sensor_id, ts)`` so two cycles that
+    land on the same second collapse to one row per sensor rather than
+    erroring, while different sensors never collide on the same second.
     """
     async with connect() as conn:
         await conn.execute(
-            "INSERT OR REPLACE INTO ambient_metrics (ts, temp_c) VALUES (?, ?)",
-            (int(ts), float(temp_c)),
+            "INSERT OR REPLACE INTO ambient_metrics (sensor_id, ts, temp_c) "
+            "VALUES (?, ?, ?)",
+            (str(sensor_id), int(ts), float(temp_c)),
         )
         await conn.commit()
 
@@ -668,8 +693,9 @@ async def insert_ambient_metric(ts: int, temp_c: float) -> None:
 async def ambient_metrics_range(
     from_ts: int,
     to_ts: int,
+    sensor_id: str,
 ) -> tuple[list[dict[str, Any]], str]:
-    """Return the relayed ambient-temperature series over a time range.
+    """Return one sensor's relayed ambient-temperature series over a range.
 
     Reuses ``_pick_metrics_tier`` so the resolution lines up with the
     per-miner History chart for the same selector. Rows are shaped
@@ -685,10 +711,10 @@ async def ambient_metrics_range(
     }[tier]
     sql = (
         f"SELECT ts, temp_c FROM {table} "
-        "WHERE ts >= ? AND ts <= ? ORDER BY ts ASC"
+        "WHERE sensor_id = ? AND ts >= ? AND ts <= ? ORDER BY ts ASC"
     )
     async with connect() as conn:
-        async with conn.execute(sql, (from_ts, to_ts)) as cur:
+        async with conn.execute(sql, (sensor_id, from_ts, to_ts)) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows], tier
 
@@ -1246,8 +1272,9 @@ async def rollup_ambient_to_1m(now: int | None = None, lookback_seconds: int = 3
     end = (n // bucket) * bucket  # exclusive: don't include current minute
     start = end - max(bucket, int(lookback_seconds))
     sql = f"""
-    INSERT OR REPLACE INTO ambient_metrics_1m (ts, temp_c, temp_min_c, temp_max_c, sample_count)
+    INSERT OR REPLACE INTO ambient_metrics_1m (sensor_id, ts, temp_c, temp_min_c, temp_max_c, sample_count)
     SELECT
+        sensor_id,
         (ts / {bucket}) * {bucket} AS bucket_ts,
         AVG(temp_c),
         MIN(temp_c),
@@ -1255,7 +1282,7 @@ async def rollup_ambient_to_1m(now: int | None = None, lookback_seconds: int = 3
         COUNT(*)
     FROM ambient_metrics
     WHERE ts >= ? AND ts < ?
-    GROUP BY bucket_ts
+    GROUP BY sensor_id, bucket_ts
     """
     async with connect() as conn:
         cur = await conn.execute(sql, (start, end))
@@ -1270,8 +1297,9 @@ async def rollup_ambient_to_1h(now: int | None = None, lookback_seconds: int = 7
     end = (n // bucket) * bucket
     start = end - max(bucket, int(lookback_seconds))
     sql = f"""
-    INSERT OR REPLACE INTO ambient_metrics_1h (ts, temp_c, temp_min_c, temp_max_c, sample_count)
+    INSERT OR REPLACE INTO ambient_metrics_1h (sensor_id, ts, temp_c, temp_min_c, temp_max_c, sample_count)
     SELECT
+        sensor_id,
         (ts / {bucket}) * {bucket} AS bucket_ts,
         AVG(temp_c),
         MIN(temp_min_c),
@@ -1279,7 +1307,7 @@ async def rollup_ambient_to_1h(now: int | None = None, lookback_seconds: int = 7
         SUM(sample_count)
     FROM ambient_metrics_1m
     WHERE ts >= ? AND ts < ?
-    GROUP BY bucket_ts
+    GROUP BY sensor_id, bucket_ts
     """
     async with connect() as conn:
         cur = await conn.execute(sql, (start, end))

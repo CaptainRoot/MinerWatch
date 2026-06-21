@@ -163,16 +163,17 @@ class Poller:
         # Evaluate alerts after we've saved everything
         await alerts.evaluate(out)
 
-        # Persist the pushed ambient (room) temperature as a fleet-wide
-        # time-series — one row per cycle — so the per-miner History chart
-        # can overlay it. With multiple sensors this stores the primary
-        # (first live) one; per-sensor history is a later phase. Only when a
-        # fresh reading is available: a stale or absent feed simply writes
-        # nothing, leaving a gap in the line rather than a flat zero.
+        # Persist the pushed ambient (room) temperature as a time-series —
+        # one row per live sensor per cycle — so a miner History chart can
+        # overlay the temperature of its assigned room. Only sensors with a
+        # fresh reading are written: a stale or absent sensor simply writes
+        # nothing, leaving a gap in its line rather than a flat zero.
         try:
-            amb = ambient.primary_snapshot()
-            if amb.available and amb.current_c is not None:
-                await db.insert_ambient_metric(ts, round(float(amb.current_c), 1))
+            for amb in ambient.snapshot_all():
+                if amb.available and amb.current_c is not None and amb.sensor_id:
+                    await db.insert_ambient_metric(
+                        amb.sensor_id, ts, round(float(amb.current_c), 1)
+                    )
         except Exception:  # noqa: BLE001
             log.debug("ambient persist skipped", exc_info=True)
 
