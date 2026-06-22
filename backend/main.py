@@ -1005,9 +1005,15 @@ async def api_panel() -> dict:
             time.strftime("%a ", lt) + str(lt.tm_mday)
             + time.strftime(" %b, %H:%M", lt)
         )
-    # The wall panel still shows a single temperature row; feed it the primary
-    # (first live) sensor for now. Multi-sensor on the panel is a later phase.
-    amb = ambient.primary_snapshot()
+    # The wall panel shows one rotating row per ambient sensor. Hand it every
+    # live sensor: snapshot_all() already drops the ones evicted after 5 min of
+    # silence, so a removed sensor disappears from the panel on its own, and the
+    # firmware just renders whatever rows arrive.
+    temps = [
+        {"name": s.name, "current_c": s.current_c, "min_c": s.min_c, "max_c": s.max_c}
+        for s in ambient.snapshot_all()
+        if s.has_data
+    ]
     try:
         order = await db.get_miner_order()
     except Exception:  # noqa: BLE001 - a DB hiccup must never break the feed
@@ -1018,10 +1024,7 @@ async def api_panel() -> dict:
         btc_usd=btc_usd,
         btc_at=btc_at,
         btc_chg=(btc_chg if btc_usd is not None else None),
-        temp_c=amb.current_c,
-        temp_min_c=amb.min_c,
-        temp_max_c=amb.max_c,
-        temp_active=amb.has_data,
+        temps=temps,
         order=order or None,
     )
 

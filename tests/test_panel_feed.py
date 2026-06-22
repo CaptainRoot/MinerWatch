@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from backend.miners.base import MinerSample  # noqa: E402
-from backend.panel import _num, panel_feed  # noqa: E402
+from backend.panel import PANEL_MAX_TEMPS, _num, panel_feed  # noqa: E402
 
 
 def _sample(**kw) -> MinerSample:
@@ -169,7 +169,7 @@ def test_panel_feed_no_order_is_byte_identical() -> None:
     miners, samples = _order_fixture()
     kwargs = dict(
         btc_usd=70996.4, btc_chg=-3.927, btc_at="Tue 2 Jun, 05:52",
-        temp_c=23.4, temp_min_c=17.9, temp_max_c=29.0, temp_active=True,
+        temps=[{"name": "Garage", "current_c": 23.4, "min_c": 17.9, "max_c": 29.0}],
     )
     baseline = panel_feed(miners, samples, **kwargs)
     assert panel_feed(miners, samples, order=None, **kwargs) == baseline
@@ -177,26 +177,37 @@ def test_panel_feed_no_order_is_byte_identical() -> None:
     assert json.dumps(panel_feed(miners, samples, order=None, **kwargs)) == json.dumps(baseline)
 
 
-def test_panel_feed_ambient_temp_optional() -> None:
+def test_panel_feed_temps_optional() -> None:
     miners = [{"id": 1, "mac": "AA:BB:CC:DD:EE:FF", "name": "M"}]
 
-    # Off by default — no temperature block.
+    # Off by default — no rotating temperature block.
     feed = panel_feed(miners, {})
-    assert all(k not in feed for k in ("temp_c", "temp_min_c", "temp_max_c"))
+    assert "temps" not in feed
 
-    # Active with a fresh value: all three present, rounded to 1 dp.
-    feed = panel_feed(miners, {}, temp_c=23.456, temp_min_c=17.9,
-                      temp_max_c=29.04, temp_active=True)
-    assert feed["temp_c"] == 23.5
-    assert feed["temp_min_c"] == 17.9
-    assert feed["temp_max_c"] == 29.0
+    # An empty list means no live sensors, same as absent (row hidden).
+    assert "temps" not in panel_feed(miners, {}, temps=[])
+
+    # Two sensors: terse keys, readings rounded to 1 dp, order preserved. A
+    # stale sensor keeps min/max but reports a null current ("-" on the panel).
+    feed = panel_feed(
+        miners, {},
+        temps=[
+            {"name": "Garage", "current_c": 23.456, "min_c": 17.9, "max_c": 29.04},
+            {"name": "Cucina", "current_c": None, "min_c": 16.0, "max_c": 26.0},
+        ],
+    )
+    assert feed["temps"] == [
+        {"n": "Garage", "c": 23.5, "mn": 17.9, "mx": 29.0},
+        {"n": "Cucina", "c": None, "mn": 16.0, "mx": 26.0},
+    ]
     assert json.loads(json.dumps(feed)) == feed
 
-    # Active but current unavailable (stale): temp_c is null, min/max kept.
-    feed = panel_feed(miners, {}, temp_c=None, temp_min_c=17.9,
-                      temp_max_c=29.0, temp_active=True)
-    assert feed["temp_c"] is None
-    assert feed["temp_min_c"] == 17.9 and feed["temp_max_c"] == 29.0
+    # Capped so a wall panel never rotates through dozens of rows.
+    many = [
+        {"name": f"S{i}", "current_c": 20.0, "min_c": 10.0, "max_c": 25.0}
+        for i in range(12)
+    ]
+    assert len(panel_feed(miners, {}, temps=many)["temps"]) == PANEL_MAX_TEMPS
 
 
 if __name__ == "__main__":
@@ -208,5 +219,5 @@ if __name__ == "__main__":
     test_panel_feed_partial_order_appends_rest_in_api_order()
     test_panel_feed_order_skips_stale_ids()
     test_panel_feed_no_order_is_byte_identical()
-    test_panel_feed_ambient_temp_optional()
+    test_panel_feed_temps_optional()
     print("ok — panel_feed tests passed")

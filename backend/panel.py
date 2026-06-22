@@ -43,6 +43,43 @@ def _num(value: Any) -> float | None:
         return None
 
 
+PANEL_MAX_TEMPS = 8  # the rotating temperature row never shows more than this
+
+
+def _temp1(value: Any) -> float | None:
+    """Round an ambient reading to one decimal (panel / dashboard convention)."""
+    try:
+        return None if value is None else round(float(value), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _temps_block(temps: list[dict] | None) -> list[dict[str, Any]]:
+    """Shape ambient sensors into the panel's terse, rotating ``temps`` list.
+
+    Each input row carries the neutral ``AmbientSnapshot`` fields
+    (``name`` / ``current_c`` / ``min_c`` / ``max_c``); the output uses short
+    keys so the payload stays small on an ESP32: ``n`` (room name), ``c``
+    (current, ``null`` when the sensor is stale), ``mn`` / ``mx`` (session
+    min/max). Capped at ``PANEL_MAX_TEMPS`` — the firmware rotates one row
+    through them and a wall panel never needs dozens. The caller omits the whole
+    block when this is empty, so the panel hides the temperature row.
+    """
+    if not temps:
+        return []
+    out: list[dict[str, Any]] = []
+    for row in temps[:PANEL_MAX_TEMPS]:
+        out.append(
+            {
+                "n": row.get("name") or "",
+                "c": _temp1(row.get("current_c")),
+                "mn": _temp1(row.get("min_c")),
+                "mx": _temp1(row.get("max_c")),
+            }
+        )
+    return out
+
+
 def device_block(rec: dict | None, sample: MinerSample | None, mac_id: str) -> dict[str, Any]:
     """Resolve a miner's display name + model the same way HA discovery did.
 
@@ -83,10 +120,7 @@ def panel_feed(
     btc_usd: float | None = None,
     btc_at: str | None = None,
     btc_chg: float | None = None,
-    temp_c: float | None = None,
-    temp_min_c: float | None = None,
-    temp_max_c: float | None = None,
-    temp_active: bool = False,
+    temps: list[dict] | None = None,
     order: list[str] | None = None,
 ) -> dict[str, Any]:
     """Consolidated single blob for a constrained display (ESPHome panel).
@@ -104,10 +138,11 @@ def panel_feed(
     until it arrives. Formatting the stamp server-side keeps the firmware free
     of any clock/timezone setup.
 
-    When an ambient temperature reading is active (``temp_active``), it also
-    adds ``temp_c`` (current, may be null when stale), ``temp_min_c`` and
-    ``temp_max_c`` (session extremes). The whole block is omitted when there's
-    no data, so the panel shows no temperature row.
+    ``temps`` is the list of ambient sensors for the panel's rotating
+    temperature row — one ``AmbientSnapshot``-shaped dict each. It is emitted as
+    ``temps`` with short per-row keys (see ``_temps_block``); when the list is
+    empty the key is omitted entirely, so the panel hides the temperature row
+    and its detail page.
 
     ``order`` is the user's custom display order: a list of sanitized-MAC ids
     (see ``sanitize_mac`` / ``db.get_miner_order``). The firmware draws cards in
@@ -159,8 +194,7 @@ def panel_feed(
             blob["btc_chg"] = round(float(btc_chg), 2)
         if btc_at:
             blob["btc_at"] = btc_at
-    if temp_active:
-        blob["temp_c"] = round(float(temp_c), 1) if temp_c is not None else None
-        blob["temp_min_c"] = round(float(temp_min_c), 1) if temp_min_c is not None else None
-        blob["temp_max_c"] = round(float(temp_max_c), 1) if temp_max_c is not None else None
+    rooms = _temps_block(temps)
+    if rooms:
+        blob["temps"] = rooms
     return blob

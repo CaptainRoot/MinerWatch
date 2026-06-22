@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.1] — 2026-06-22
+
+### Changed
+
+- **Panel feed `GET /api/panel` now carries every ambient sensor (breaking).**
+  It returns a `temps` array — one entry per live sensor, `{n, c, mn, mx}` (name,
+  current, session min/max), capped and omitted entirely when no sensor is live —
+  instead of the single `temp_c`/`temp_min_c`/`temp_max_c` of one primary sensor.
+  The Monolith panel firmware must be updated to match: the bottom row rotates
+  through the sensors (name + current, tap to advance) and a new temperatures
+  page lists each room's current/min/max (hold the row to open). A sensor
+  MinerWatch evicts after 5 minutes of silence drops off the panel on its own.
+
 ## [1.19.0] — 2026-06-21
 
 ### Added
