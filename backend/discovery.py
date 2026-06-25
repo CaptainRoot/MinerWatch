@@ -22,7 +22,7 @@ from typing import Iterable
 
 from .config import get_config
 from . import db
-from .miners import BitaxeDriver, BraiinsDriver, CanaanDriver, LuxosDriver
+from .miners import BitaxeDriver, BraiinsDriver, CanaanDriver, LuxosDriver, NmaxeDriver
 from .miners.cgminer_client import CgminerClient, CgminerError
 
 log = logging.getLogger("minerwatch.discovery")
@@ -89,6 +89,39 @@ def _pretty_bitforge_model(device_model: str) -> str:
             continue
         pretty.append("BitForge" if tok.lower() == "bitforge" else tok.capitalize())
     return " ".join(pretty) or "BitForge"
+
+
+async def _identify_nmaxe(host: str) -> dict | None:
+    """Identify an NMAxe-family host (NMAxe / NMAxeGamma / NMQAxe++) on port 80.
+
+    NMAxe is an AxeOS fork with a *nested* ``/api/system/info`` and no MAC,
+    so it can't be told apart by the Bitaxe ``deviceModel`` path (it has no
+    ``/api/system/asic`` — that endpoint returns 200 with an empty body).
+    It does expose a swarm ``GET /probe`` that stock AxeOS / NerdQAxe lack,
+    returning ``model`` ("NMAxe" / "NMAxeGamma" / "NMQAxe++"). A 200 whose
+    model starts with "NM" is the fingerprint.
+
+    This MUST run before :func:`_identify_bitaxe`: an "NMQAxe++" would
+    otherwise be caught by that function's ``"qaxe" → nerdoctaxe``
+    heuristic and driven with the wrong (shufps) parser.
+
+    Identity is keyed on the host — NMAxe exposes no MAC, and
+    ``db.upsert_miner`` already falls back to matching on host when ``mac``
+    is None.
+    """
+    drv = NmaxeDriver(host=host, timeout=2)
+    probe = await drv.fetch_probe()
+    model = str(probe.get("model") or "").strip()
+    if not model or not model.upper().startswith("NM"):
+        return None
+    return {
+        "family": "nmaxe",
+        "host": host,
+        "port": PORT_BITAXE,
+        "mac": None,
+        "model": model,
+        "name": probe.get("hostname") or model or f"NMAxe {host}",
+    }
 
 
 async def _identify_bitaxe(host: str) -> dict | None:
@@ -329,7 +362,12 @@ async def _identify_from_ports(host: str, ports: list[int]) -> dict | None:
     """
     info = None
     if PORT_BITAXE in ports:
-        info = await _identify_bitaxe(host)
+        # NMAxe first: it shares port 80 with Bitaxe but needs a different
+        # parser, and an "NMQAxe++" would be mis-claimed by _identify_bitaxe's
+        # "qaxe" → nerdoctaxe heuristic if that ran first.
+        info = await _identify_nmaxe(host)
+        if not info:
+            info = await _identify_bitaxe(host)
     if not info and PORT_CGMINER in ports:
         info = await _identify_cgminer(host)
     return info

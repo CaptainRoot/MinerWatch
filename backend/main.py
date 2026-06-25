@@ -927,31 +927,63 @@ async def api_widget_miners() -> dict:
 
 
 def _halo_live_shares(miners: list[dict]) -> dict[int, dict]:
-    """Per-miner live per-share state for AxeOS miners, from log_streamer.
+    """Per-miner live per-share state for streamed miners, from log_streamer.
 
-    For each supported miner we read the in-memory share stream: the
+    For each supported miner we read the in-memory share stream ("A"): the
     running submitted-share count (drives a per-share share_seq) and the
     newest *submitted* share's difficulty + arrival time (drives a
-    per-share last_diff). Miners without a live stream are simply absent,
-    and halo.build_halo_payload falls back to the poller aggregates for
-    them. Read-only and cheap: no DB, no network.
+    per-share last_diff).
+
+    Poll fallback ("B"): NMAxe reports the last submitted share's difficulty
+    directly in ``/api/system/info`` (``last_share_diff``), so the Halo can
+    show a real last-share number even before that miner's live WS stream
+    has produced one. Stock AxeOS leaves ``last_share_diff`` None, so this
+    is a no-op there and behaviour is unchanged. Miners with neither a live
+    stream nor a poll-side last_diff are simply absent, and
+    halo.build_halo_payload falls back to the poller aggregates for them.
+    Read-only and cheap: no DB, no network.
     """
     out: dict[int, dict] = {}
+    samples = poller.last_results
     for m in miners:
-        if not log_streamer.is_supported(m.get("family")):
+        mid = m["id"]
+        sample = samples.get(mid)
+        st = log_streamer.stats(mid) if log_streamer.is_supported(m.get("family")) else None
+
+        ws_last_diff = None
+        ws_last_ts = None
+        submitted_total: int | None = None
+        if st:
+            ws_last_ts = st.get("last_event_ts")
+            for ev in reversed(log_streamer.recent(mid)):
+                if ev.get("submitted"):
+                    ws_last_diff = ev.get("diff")
+                    ws_last_ts = ev.get("ts")
+                    break
+            submitted_total = st.get("submitted_total") or 0
+
+        poll_last_diff = getattr(sample, "last_share_diff", None) if sample else None
+
+        if ws_last_diff is not None:
+            last_diff, last_ts = ws_last_diff, ws_last_ts
+        elif poll_last_diff is not None:
+            last_diff, last_ts = poll_last_diff, time.time()
+        else:
+            last_diff, last_ts = None, ws_last_ts
+
+        if last_diff is None and submitted_total is None:
+            # Nothing to contribute: let build_halo_payload fall back to the
+            # poller aggregates (cumulative accepted count) for this miner.
             continue
-        st = log_streamer.stats(m["id"])
-        if not st:
-            continue
-        last_diff = None
-        last_ts = st.get("last_event_ts")
-        for ev in reversed(log_streamer.recent(m["id"])):
-            if ev.get("submitted"):
-                last_diff = ev.get("diff")
-                last_ts = ev.get("ts")
-                break
-        out[m["id"]] = {
-            "submitted_total": st.get("submitted_total") or 0,
+
+        if submitted_total is None:
+            # No live stream yet, but we have a poll-side last_diff. Keep
+            # share_seq advancing off the cumulative accepted count, exactly
+            # like build_halo_payload's own no-live fallback would.
+            submitted_total = int(getattr(sample, "accepted", 0) or 0) if sample else 0
+
+        out[mid] = {
+            "submitted_total": submitted_total,
             "last_diff": last_diff,
             "last_ts": last_ts,
             "name": m.get("name"),

@@ -115,6 +115,7 @@ export const FAMILY_LABEL: Record<string, string> = {
   bitaxe: 'Bitaxe',
   nerdoctaxe: 'NerdQAxe / NerdOctaxe',
   bitforge: 'BitForge',
+  nmaxe: 'NMAxe',
   canaan: 'Canaan / Avalon',
   braiins: 'Braiins / BMM',
   luxos: 'LuxOS (Antminer)',

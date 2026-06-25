@@ -14,6 +14,7 @@ from .base import MinerDriver, MinerSample
 from .bitaxe import BitaxeDriver
 from .nerdoctaxe import NerdOctaxeDriver
 from .bitforge import BitForgeDriver
+from .nmaxe import NmaxeDriver
 from .canaan import CanaanDriver
 from .braiins import BraiinsDriver
 from .luxos import LuxosDriver
@@ -26,6 +27,10 @@ DRIVERS: dict[str, Type[MinerDriver]] = {
     # BitForge (Nano): forge-os firmware, AxeOS-derived with a few
     # renamed fields (fanSpeed, chiptemp1/2) — see bitforge.py.
     "bitforge": BitForgeDriver,
+    # NMAxe (NMAxe / NMAxeGamma / NMQAxe++): AxeOS fork with a fully
+    # nested /api/system/info and /api/setting/* controls — see nmaxe.py.
+    # Fan + restart only; no MAC (identity keyed on host).
+    "nmaxe": NmaxeDriver,
     "canaan": CanaanDriver,
     "braiins": BraiinsDriver,
     "luxos": LuxosDriver,
@@ -54,6 +59,7 @@ __all__ = [
     "BitaxeDriver",
     "NerdOctaxeDriver",
     "BitForgeDriver",
+    "NmaxeDriver",
     "CanaanDriver",
     "BraiinsDriver",
     "LuxosDriver",

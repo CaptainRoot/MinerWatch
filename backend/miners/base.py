@@ -306,6 +306,13 @@ class MinerSample:
     # found a block. Drivers that don't surface it leave None; MinerWatch
     # falls back to a periodic fetch from a public block-explorer API.
     network_difficulty: float | None = None
+    # Difficulty of the most recently *submitted* share, when the firmware
+    # exposes it directly in its poll payload (NMAxe ``miner.lastDiff``).
+    # Stock AxeOS does not report this — it only surfaces per-share data over
+    # the live WS feed — so it stays None there. The Halo uses it as the
+    # poll-side ("B") fallback for the last-share ticker when a miner's live
+    # WS stream ("A") has no data yet.
+    last_share_diff: float | None = None
     pool_url: str | None = None
     worker: str | None = None
 

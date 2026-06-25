@@ -94,6 +94,15 @@ except Exception:  # noqa: BLE001  pragma: no cover
 # The fallback engages per-stream and automatically: a real asic_result
 # line always switches the stream back to the full-fidelity path.
 AXEOS_FAMILIES = {"bitaxe", "nerdoctaxe", "bitforge"}
+# NMAxe is also AxeOS-derived but speaks a *different* log dialect: the WS
+# is at ``ws://<ip>/ws`` (not ``/api/ws``) and a submitted share is logged
+# as a compact pipe line "₿ |x|<shareDiff>|<poolDiff>|<netDiff>|" (ANSI-
+# wrapped), not the ESP-IDF "I (ms) asic_result: ... diff X of Y" line. It
+# therefore gets its own parse branch keyed on the per-stream family — see
+# :meth:`LogStreamer._handle_nmaxe_line`.
+NMAXE_FAMILIES = {"nmaxe"}
+# Every family we open a live per-share WS stream for.
+STREAM_FAMILIES = AXEOS_FAMILIES | NMAXE_FAMILIES
 
 # Per-miner ring buffer for the live chart. Retention is primarily
 # TIME-based (RING_BUFFER_SECONDS): a pure count cap spans far less
@@ -154,6 +163,17 @@ _SHARE = re.compile(rf"\bdiff\s+({_DIFF_TOKEN})\s*(?:of|/)\s*({_DIFF_TOKEN})")
 #   asic_task:    "New pool difficulty 8192.00"
 _TARGET = re.compile(
     r"\b(?:Set stratum difficulty:|New pool difficulty)\s+([0-9]+(?:\.[0-9]+)?)"
+)
+
+# NMAxe submitted-share line (fw v3.0.21, captured from a real unit):
+#   "\x1b[32m₿ |32.00 |6.588K|2.049K|234.5394M|\x1b[0m"
+# Fields after the ₿ marker are: <misc> | <shareDiff> | <poolDiff> | <netDiff>.
+# We take the share difficulty (field 2) and the pool target (field 3); the
+# leading field and the trailing net-diff are ignored. ANSI codes are stripped
+# by _ANSI before matching. NOTE: derived from a single real sample — revisit
+# if a future firmware reorders the fields.
+_NMAXE_SHARE = re.compile(
+    rf"₿\s*\|\s*[^|]*\|\s*({_DIFF_TOKEN})\s*\|\s*({_DIFF_TOKEN})\s*\|"
 )
 
 # How far back a REST-observed session-best may retroactively upgrade the
@@ -226,6 +246,8 @@ class MinerStream:
     miner_id: int
     host: str
     port: int
+    # Drives the WS path and the parse dialect (see STREAM_FAMILIES).
+    family: str = ""
     buffer: Deque[ShareEvent] = field(default_factory=lambda: deque(maxlen=RING_BUFFER))
     # Submitted shares awaiting their accepted/rejected verdict, oldest
     # first. Bounded so an unmatched result line can't leak memory.
@@ -322,31 +344,36 @@ class LogStreamer:
 
     async def _reconcile_once(self) -> None:
         miners = await db.list_miners(only_enabled=True)
-        wanted: dict[int, tuple[str, int]] = {}
+        wanted: dict[int, tuple[str, int, str]] = {}
         for m in miners:
-            if (m.get("family") or "").lower() not in AXEOS_FAMILIES:
+            family = (m.get("family") or "").lower()
+            if family not in STREAM_FAMILIES:
                 continue
             mid = int(m["id"])
             host = m.get("host") or ""
             port = int(m.get("port") or 80)
             if host:
-                wanted[mid] = (host, port)
+                wanted[mid] = (host, port, family)
 
         # Stop tasks for miners that vanished, got disabled, or moved host.
         for mid in list(self._tasks.keys()):
             task = self._tasks[mid]
             stream = self._streams.get(mid)
-            moved = stream is not None and mid in wanted and (stream.host, stream.port) != wanted[mid]
+            moved = (
+                stream is not None
+                and mid in wanted
+                and (stream.host, stream.port, stream.family) != wanted[mid]
+            )
             if mid not in wanted or task.done() or moved:
                 task.cancel()
                 self._tasks.pop(mid, None)
                 self._streams.pop(mid, None)
 
         # Start tasks for newly-wanted miners.
-        for mid, (host, port) in wanted.items():
+        for mid, (host, port, family) in wanted.items():
             if mid in self._tasks and not self._tasks[mid].done():
                 continue
-            stream = MinerStream(miner_id=mid, host=host, port=port)
+            stream = MinerStream(miner_id=mid, host=host, port=port, family=family)
             self._streams[mid] = stream
             self._tasks[mid] = asyncio.create_task(
                 self._run_miner(stream), name=f"mw-stream-{mid}"
@@ -354,15 +381,17 @@ class LogStreamer:
 
     # ---- per-miner WS task ---------------------------------------------
 
-    def _ws_url(self, host: str, port: int) -> str:
-        # AxeOS serves the log WS on the HTTP port (80). Only include an
-        # explicit port when it's non-standard.
+    def _ws_url(self, host: str, port: int, family: str = "") -> str:
+        # The log WS is on the HTTP port (80). NMAxe serves it at /ws; stock
+        # AxeOS and the other forks use /api/ws. Only include an explicit
+        # port when it's non-standard.
+        path = "/ws" if family in NMAXE_FAMILIES else "/api/ws"
         if port and port != 80:
-            return f"ws://{host}:{port}/api/ws"
-        return f"ws://{host}/api/ws"
+            return f"ws://{host}:{port}{path}"
+        return f"ws://{host}{path}"
 
     async def _run_miner(self, stream: MinerStream) -> None:
-        url = self._ws_url(stream.host, stream.port)
+        url = self._ws_url(stream.host, stream.port, stream.family)
         backoff = 1.0
         while not self._stop.is_set():
             try:
@@ -407,6 +436,11 @@ class LogStreamer:
     # ---- parsing + dispatch --------------------------------------------
 
     async def _handle_line(self, stream: MinerStream, line: str) -> None:
+        # NMAxe speaks a different log dialect (₿-pipe share lines on /ws);
+        # everything below is the ESP-IDF asic_result path of stock AxeOS.
+        if stream.family in NMAXE_FAMILIES:
+            await self._handle_nmaxe_line(stream, line)
+            return
         clean = _ANSI.sub("", line).strip()
         if not clean:
             return
@@ -456,6 +490,29 @@ class LogStreamer:
                     return
                 if target > 0:
                     stream.current_target = target
+
+    async def _handle_nmaxe_line(self, stream: MinerStream, line: str) -> None:
+        """Parse an NMAxe submitted-share line into a :class:`ShareEvent`.
+
+        NMAxe logs only *submitted* shares (the "₿" toast), each carrying
+        the exact share difficulty and the pool target — so, unlike the
+        forge-os synthetic path, we get the real difficulty (just no
+        below-target cloud). This firmware emits no separate accept/reject
+        verdict line, so events stay ungraded (``accepted=None``); that's
+        fine for the live chart and for the Halo's share_seq/last_diff.
+        """
+        clean = _ANSI.sub("", line).strip()
+        if "₿" not in clean:
+            return
+        m = _NMAXE_SHARE.search(clean)
+        if not m:
+            return
+        try:
+            share_diff = _parse_diff_token(m.group(1))
+            pool_target = _parse_diff_token(m.group(2))
+        except ValueError:
+            return
+        await self._on_result(stream, 0, share_diff, pool_target)
 
     async def _on_result(
         self, stream: MinerStream, uptime_ms: int, share_diff: float, pool_target: float
@@ -711,7 +768,7 @@ class LogStreamer:
     # ---- read helpers (used by the API) --------------------------------
 
     def is_supported(self, family: Optional[str]) -> bool:
-        return (family or "").lower() in AXEOS_FAMILIES
+        return (family or "").lower() in STREAM_FAMILIES
 
     def recent(self, miner_id: int, limit: int = RING_BUFFER) -> list[dict[str, Any]]:
         stream = self._streams.get(miner_id)
