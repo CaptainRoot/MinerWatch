@@ -26,10 +26,17 @@ interface Props {
   setForm: (next: SettingsFormState) => void;
 }
 
+// Browser push (Web Push + VAPID) is being retired in favour of Telegram.
+// Twin of PUSH_CHANNEL_ENABLED in backend/alerts.py — keep the two in sync.
+// While false, the "Browser push notifications" card is hidden but all of
+// its code stays put, so flipping both flags (and rebuilding dist/) brings
+// the feature back instantly. See the comment block in backend/alerts.py.
+const PUSH_CHANNEL_ENABLED = false;
+
 export function NotificationsTab({ form, setForm }: Props) {
   return (
     <div className="space-y-4">
-      <BrowserPushCard form={form} setForm={setForm} />
+      {PUSH_CHANNEL_ENABLED && <BrowserPushCard form={form} setForm={setForm} />}
       <TelegramCard form={form} setForm={setForm} />
     </div>
   );

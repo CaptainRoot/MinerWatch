@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dedicated parser, and the last-share difficulty is also read from the poll
   (`miner.lastDiff`) so the Halo shows it even before the stream connects.
 
+### Changed
+
+- **Browser push notifications hidden and disabled by default.** Native Web
+  Push (VAPID) is being retired in favour of the Telegram channel, which works
+  on any device without HTTPS and needs no browser left open. The "Browser push
+  notifications" card is now hidden from Settings and the channel no longer
+  sends, while all of its code, stored subscriptions and VAPID keys are kept in
+  place so the feature can be restored at once if there is demand. Telegram is
+  the recommended notification channel — set it up under Settings →
+  Notifications.
+
 ## [1.19.1] — 2026-06-22
 
 ### Changed

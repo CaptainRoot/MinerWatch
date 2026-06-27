@@ -483,6 +483,38 @@ async def notify_block_found(
     return True
 
 
+# =====================================================================
+# BROWSER PUSH CHANNEL — soft-deprecation switch
+# =====================================================================
+# Browser push (Web Push + VAPID) is being retired in favour of Telegram,
+# which works on any device without HTTPS. We turn the channel OFF and
+# hide its Settings card, but keep ALL the code (endpoints, VAPID keys,
+# DB subscriptions, service worker, deps) in place so we can either bring
+# it back instantly or remove it for good once we know nobody misses it.
+#
+# When False:
+#   - send_notification() never dispatches to send_push(), regardless of
+#     the per-user `alerts.push_enabled` toggle (which we leave untouched
+#     in the DB, so a restore needs no re-subscription).
+#   - the frontend hides the "Browser push notifications" card. That card
+#     lives in frontend-react/src/components/settings/NotificationsTab.tsx
+#     behind a twin `PUSH_CHANNEL_ENABLED` constant — keep the two in sync.
+#
+# How to RESTORE the feature:
+#   1) Flip this flag to True AND the twin constant in NotificationsTab.tsx.
+#   2) Rebuild the frontend bundle (frontend-react/dist/) and release.
+#   Existing subscriptions are still in the DB, so delivery resumes at once.
+#
+# How to REMOVE it for good (once retired): delete send_push() + the VAPID
+# helpers here, the /api/push/* endpoints and the ensure_vapid_keys() call
+# in main.py, the push_subscriptions table + helpers in db.py, lib/push.ts +
+# BrowserPushCard, the public/sw.js + dist/sw.js files, and the
+# pywebpush/cryptography deps from requirements.txt.
+# =====================================================================
+
+PUSH_CHANNEL_ENABLED = False
+
+
 # ---------- Notification dispatcher ----------
 
 async def send_notification(payload: dict[str, Any]) -> None:
@@ -507,7 +539,9 @@ async def send_notification(payload: dict[str, Any]) -> None:
         return
 
     tasks = []
-    if cfg.alerts.push_enabled:
+    # PUSH_CHANNEL_ENABLED is the master switch for the soft-deprecated
+    # browser-push channel; it overrides the per-user push_enabled toggle.
+    if PUSH_CHANNEL_ENABLED and cfg.alerts.push_enabled:
         tasks.append(send_push(payload))
     if cfg.alerts.telegram_enabled:
         tasks.append(send_telegram(payload))

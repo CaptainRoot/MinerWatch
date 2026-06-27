@@ -65,10 +65,10 @@ export function AlertsTab({ form, setForm }: Props) {
 
           <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/30 p-3 sm:col-span-2">
             <div>
-              <div className="text-sm font-semibold">Send push notifications</div>
+              <div className="text-sm font-semibold">Send notifications</div>
               <p className="text-xs text-muted-foreground">
-                Global kill-switch. When off, MinerWatch keeps recording alerts but doesn't push
-                them on any channel. Existing browser subscriptions stay registered.
+                Global kill-switch. When off, MinerWatch keeps recording alerts but doesn't send
+                them on any channel.
               </p>
             </div>
             <Switch

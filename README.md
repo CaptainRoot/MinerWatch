@@ -114,10 +114,10 @@ comfortable opening a terminal but not necessarily developers.
 - **Top best shares leaderboard** across enabled miners, with medals and a
   link to the device
 - **Best-share tracker** — session and all-time best difficulty per miner
-  and across the fleet, with native push when a miner breaks its own
+  and across the fleet, with a notification when a miner breaks its own
   all-time record
 - **Block-find detection** — when a share difficulty meets or exceeds the
-  network difficulty (a solo block!), MinerWatch fires a push notification
+  network difficulty (a solo block!), MinerWatch fires a notification
   and pins a permanent trophy card on the dashboard
 - **Server-side auto-fan PID** controller (`backend/auto_control.py`)
   replicating the BitAxe firmware loop (Kp=5, Ki=0.1, Kd=2, EMA, target temp
@@ -146,9 +146,9 @@ comfortable opening a terminal but not necessarily developers.
   dashboard shows a live row per sensor, each miner can be assigned to a room so
   its History temperature chart overlays that sensor, and readings are retained
   as per-sensor history alongside the per-miner metrics.
-- **Multi-channel alerts**: Web Push (VAPID) for native OS notifications,
-  *and* a Telegram bot that delivers to any phone or desktop without HTTPS
-  — both channels are independent kill-switches in the UI
+- **Telegram alerts** — a Telegram bot delivers notifications to any phone
+  or desktop without HTTPS, set up entirely from the UI (the original
+  browser-push channel via Web Push/VAPID is retired in favour of Telegram)
 - **Tiered metric retention** — raw 5-second samples for the last 48 h,
   1-minute rollups for 30 days, 1-hour rollups for 2 years. SQLite stays
   small, history stays long
@@ -450,7 +450,7 @@ will not find any miner** because the container can't see your
                   │  Vite + Tailwind +      │    │   (phone, etc)  │
                   │  Shadcn + Recharts)     │    └────────▲────────┘
                   └────────────┬────────────┘             │  Bot API
-                               │  HTTP / WebPush          │
+                               │  HTTP                    │
                                ▼                          │
    ┌─────────────────────────────────────────────────────────────────┐
    │                          FastAPI app                            │
@@ -458,8 +458,8 @@ will not find any miner** because the container can't see your
    │                                                                 │
    │   ┌────────────┐  ┌──────────────┐  ┌─────────────────────┐     │
    │   │  poller    │  │  discovery   │  │  alerts dispatcher  │     │
-   │   │ (asyncio,  │  │ (LAN /24     │  │  WebPush + Telegram │     │
-   │   │  every 5s) │  │  on demand)  │  │ in parallel         │     │
+   │   │ (asyncio,  │  │ (LAN /24     │  │  fans out to the    │     │
+   │   │  every 5s) │  │  on demand)  │  │  enabled channels   │     │
    │   └─────┬──────┘  └──────┬───────┘  └─────────────────────┘     │
    │         │                │                                      │
    │         ▼                ▼                                      │
@@ -501,8 +501,9 @@ Highlights:
 - `alerts.temp_chip_threshold`, `alerts.temp_vr_threshold`,
   `alerts.offline_threshold_seconds`, `alerts.repeat_seconds` —
   thresholds and re-alert cadence
-- `alerts.push_enabled`, `alerts.telegram_enabled` — independent
-  kill-switches for the two notification channels
+- `alerts.telegram_enabled` — enables the Telegram notification channel.
+  (`alerts.push_enabled` still exists but browser push is retired and
+  disabled, so it currently has no effect)
 - `storage.retention_raw_hours` / `retention_1m_days` /
   `retention_1h_days` — tiered retention (defaults: 48 h / 30 d / 730 d).
   The legacy `storage.retention_days` is honoured as an alias for the
@@ -564,9 +565,9 @@ within 30 minutes (or immediately via *Check now*).
 
 ## Notifications
 
-MinerWatch ships with two independent alert channels you can enable
-side-by-side. The dispatcher fans the same alert payload out to both in
-parallel, so a failure on one channel never blocks the other.
+MinerWatch delivers alerts through a **Telegram bot** — it works on any
+device (iPhone, Android, desktop) without HTTPS, because the server is the
+one that calls Telegram's API.
 
 Alerts fire for:
 
@@ -579,23 +580,12 @@ Alerts fire for:
 Re-alerts fire every `alerts.repeat_seconds` (default 600 s) while a
 critical condition persists, with a sticky banner in the dashboard.
 
-### Browser push (Web Push + VAPID)
-
-On first launch MinerWatch generates a VAPID key pair and stores it in
-`data/vapid_keys.json` (treat this as private — it identifies your server
-to subscribed browsers). On *Settings → Notifications* click *Enable
-notifications* to grant your browser permission. From then on you'll get
-native OS notifications.
-
-> **macOS note**: in addition to the per-site permission, you also need to
-> allow notifications at the system level under *System Settings →
-> Notifications → Google Chrome*. See the
-> [Troubleshooting](#troubleshooting) section below.
-
-> **HTTPS caveat**: browsers expose the Web Push API only on `https://`
-> or `http://localhost`. If you reach MinerWatch from another device on
-> the LAN (`http://192.168.1.x:8000`) push will show as "not supported"
-> on that browser — use the Telegram channel below instead.
+> **Browser push retired.** Earlier versions also offered native browser
+> notifications via Web Push (VAPID). Because that works only over
+> `https://` or `http://localhost` — useless when you open MinerWatch from
+> a LAN IP on your phone — it has been retired in favour of Telegram. The
+> code is still in the tree but the channel is disabled and its Settings
+> card hidden; open an issue if you relied on it.
 
 ### Telegram bot
 
@@ -695,26 +685,6 @@ relying on discovery.
 </details>
 
 <details>
-<summary><b>Push notifications are silent on macOS</b></summary>
-
-Two layers of permission are required:
-
-1. *In Chrome*: site permission for `http://localhost:8000` →
-   Notifications → Allow
-2. *In macOS*: System Settings → Notifications → Google Chrome → Allow
-   notifications, with banner / alert style of your choice
-</details>
-
-<details>
-<summary><b>Push fails with a "key parsing" or LibreSSL error</b></summary>
-
-This is a known issue with Apple's LibreSSL. MinerWatch already works
-around it by feeding the VAPID private key in raw base64 (not PEM). If
-you see this error and you're not on macOS, please open an issue with
-your `pip show pywebpush` and `python -c "import ssl; print(ssl.OPENSSL_VERSION)"`.
-</details>
-
-<details>
 <summary><b>Braiins BMM 101 shows zeros for temperatures / fans</b></summary>
 
 Braiins firmware doesn't populate `temps` / `fans` / `tunerstatus` on every
@@ -742,10 +712,10 @@ Full walkthrough with a copy-pasteable template in
 
 Done:
 
-- [x] Best-share tracker (session / all-time per miner + fleet) with push
+- [x] Best-share tracker (session / all-time per miner + fleet) with notifications
 - [x] Block-find detection + trophy card
 - [x] Server-side auto-fan PID controller
-- [x] Telegram bot in addition to Web Push
+- [x] Telegram bot notifications
 - [x] Solo-lottery odds card (network difficulty vs your hashrate)
 - [x] Top best shares leaderboard
 - [x] Per-miner Hardware tab with grouped readouts
