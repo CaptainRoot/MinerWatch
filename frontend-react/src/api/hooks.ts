@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/lib/api';
 import type {
@@ -101,6 +101,12 @@ export function useMinerMetrics(id: number | undefined, fromTs: number, toTs: nu
     // Metric ranges are bigger payloads (up to 30 days of 1-min rollups)
     // so we keep them around longer than fleet polling.
     staleTime: 60_000,
+    // The History window slides forward in time, so its query key changes
+    // whenever the caller advances `now` (or the user switches range). Keep
+    // serving the previous range's data until the new one lands instead of
+    // returning undefined — that's what stops the charts flashing to a
+    // skeleton and losing the active tooltip on every refresh.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -126,6 +132,9 @@ export function useAmbientHistory(
         { signal },
       ),
     staleTime: 60_000,
+    // Same reasoning as useMinerMetrics: keep the prior window's overlay on
+    // screen while the next one loads so the Temperature chart never blanks.
+    placeholderData: keepPreviousData,
   });
 }
 

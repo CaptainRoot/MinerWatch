@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.2] — 2026-06-27
+
 ### Added
 
 - **NMAxe miner family (NMAxe / NMAxeGamma / NMQAxe++).** Support for the NMAxe
@@ -22,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DHCP reservation). Live per-share streaming works over `ws://<ip>/ws` with a
   dedicated parser, and the last-share difficulty is also read from the poll
   (`miner.lastDiff`) so the Halo shows it even before the stream connects.
+- **Synchronised History tooltips and a temperature legend.** Hovering any of
+  the three History charts (Hashrate, Temperature, Reject rate) now highlights
+  the same moment on all of them at once, with a dashed guide line under the
+  cursor and a labelled point on each series. The Temperature chart also gains
+  a compact legend (Chip / VR / Room) so its lines are readable at a glance
+  without hovering.
 
 ### Changed
 
@@ -33,6 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   place so the feature can be restored at once if there is demand. Telegram is
   the recommended notification channel — set it up under Settings →
   Notifications.
+
+### Fixed
+
+- **History charts no longer flash on every refresh.** The per-miner History
+  charts used to rebuild from scratch on each 5s poll — blinking through a
+  loading skeleton and dropping whatever value you were hovering. The visible
+  time window is now held steady between refreshes, and the previous data stays
+  on screen while the next range loads, so the charts keep their place, the
+  skeleton only appears on the very first load, and a refresh that lands while
+  you are reading a tooltip no longer steals it. Auto-refresh also pauses while
+  the pointer is over a chart and snaps back to live when it leaves.
 
 ## [1.19.1] — 2026-06-22
 

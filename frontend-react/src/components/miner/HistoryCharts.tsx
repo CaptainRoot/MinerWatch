@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -41,6 +42,33 @@ const RANGES: Array<{ label: string; seconds: number }> = [
   { label: '30d', seconds: 2592000 },
 ];
 
+// The trailing edge of the window (`now`) is quantised to this many seconds.
+// Re-renders within the same bucket reuse the exact same fromTs/toTs, so the
+// React Query keys stay referentially stable and the charts never refetch
+// (let alone blank) just because a 5s fleet poll re-rendered the page.
+const BUCKET_S = 30;
+// How often we look at the clock to roll the bucket forward. Setting state to
+// the same bucket value is a no-op in React, so a real refetch happens at most
+// once per bucket no matter how fast this ticks.
+const TICK_MS = 15_000;
+
+const bucketedNow = () => Math.floor(Date.now() / 1000 / BUCKET_S) * BUCKET_S;
+
+// A shared, theme-aware vertical guide under the cursor — replaces Recharts'
+// default solid grey line so the hover reads as part of the design.
+const TOOLTIP_CURSOR = {
+  stroke: 'hsl(var(--muted-foreground))',
+  strokeWidth: 1,
+  strokeDasharray: '4 4',
+};
+
+const TOOLTIP_CONTENT_STYLE = {
+  background: 'hsl(var(--card))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: 8,
+  fontSize: 12,
+};
+
 /**
  * History tab: hashrate and temperature time-series over a selectable
  * range. Powered by Recharts so axes, tooltip, and responsiveness come
@@ -49,9 +77,40 @@ const RANGES: Array<{ label: string; seconds: number }> = [
 export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorName }: Props) {
   const [range, setRange] = useState(86400);
   const vrSeriesLabel = family === 'canaan' ? 'Air out' : 'VR';
-  const now = Math.floor(Date.now() / 1000);
-  const fromTs = now - range;
-  const toTs = now;
+
+  // The visible window is [now - range, now]. We hold `now` in state and only
+  // advance it on a fixed cadence instead of recomputing it every render —
+  // otherwise fromTs/toTs (and the React Query keys derived from them) would
+  // change on every 5s poll re-render, refetching the whole range, dropping
+  // the charts to a skeleton, and killing whatever tooltip the user was
+  // reading. A steady, bucketed `now` keeps the keys stable so the charts
+  // stay mounted and only pick up new points when the bucket rolls forward.
+  const [nowTs, setNowTs] = useState(bucketedNow);
+
+  // True while the pointer is over the charts. We freeze the window during a
+  // hover so the data can't shift out from under the tooltip mid-read; on
+  // leave we snap straight back to live. A ref (not state) so flipping it
+  // never triggers a render of its own.
+  const hoveringRef = useRef(false);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (hoveringRef.current) return;
+      setNowTs(bucketedNow());
+    }, TICK_MS);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const onChartsEnter = () => {
+    hoveringRef.current = true;
+  };
+  const onChartsLeave = () => {
+    hoveringRef.current = false;
+    setNowTs(bucketedNow());
+  };
+
+  const fromTs = nowTs - range;
+  const toTs = nowTs;
 
   const { data, isLoading } = useMinerMetrics(minerId, fromTs, toTs);
 
@@ -215,9 +274,14 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
           ))}
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4" onMouseEnter={onChartsEnter} onMouseLeave={onChartsLeave}>
         <ChartBlock title="Hashrate" unit="TH/s" isLoading={isLoading} hasData={!!series.length}>
-          <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <LineChart
+            data={series}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            syncId="mw-history"
+            syncMethod="value"
+          >
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="ts"
@@ -235,12 +299,8 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
               tickFormatter={(v) => fmtNum(v, 1)}
             />
             <Tooltip
-              contentStyle={{
-                background: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: 8,
-                fontSize: 12,
-              }}
+              contentStyle={TOOLTIP_CONTENT_STYLE}
+              cursor={TOOLTIP_CURSOR}
               labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
               formatter={(v: number) => [`${fmtNum(v, 2)} TH/s`, 'Hashrate']}
             />
@@ -250,6 +310,7 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
               stroke="hsl(var(--primary))"
               strokeWidth={2}
               dot={false}
+              activeDot={{ r: 4 }}
               isAnimationActive={false}
             />
           </LineChart>
@@ -262,7 +323,12 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
           hasData={!!tempSeries.length}
           action={roomSelector}
         >
-          <LineChart data={tempSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <LineChart
+            data={tempSeries}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            syncId="mw-history"
+            syncMethod="value"
+          >
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="ts"
@@ -280,21 +346,21 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
               tickFormatter={(v) => fmtNum(v, 0)}
             />
             <Tooltip
-              contentStyle={{
-                background: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: 8,
-                fontSize: 12,
-              }}
+              contentStyle={TOOLTIP_CONTENT_STYLE}
+              cursor={TOOLTIP_CURSOR}
               labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
-              formatter={(v: number, name: string) => {
-                const label =
-                  name === 'tempChip' ? 'Chip' : name === 'tempVr' ? vrSeriesLabel : roomName;
-                return [`${fmtNum(v, 1)} °C`, label];
-              }}
+              formatter={(v: number, name) => [`${fmtNum(v, 1)} °C`, name as string]}
             />
-            <Line type="monotone" dataKey="tempChip" stroke="#fb923c" strokeWidth={2} dot={false} isAnimationActive={false} />
-            <Line type="monotone" dataKey="tempVr" stroke="#facc15" strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Legend
+              verticalAlign="top"
+              align="right"
+              height={22}
+              iconType="plainline"
+              iconSize={12}
+              wrapperStyle={{ fontSize: 11 }}
+            />
+            <Line type="monotone" dataKey="tempChip" name="Chip" stroke="#fb923c" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+            <Line type="monotone" dataKey="tempVr" name={vrSeriesLabel} stroke="#facc15" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
             {/* Room temperature relayed over HTTP — only when the relay has
                 data. Dashed cool-blue to read as "environment, not device",
                 and connectNulls so a brief relay gap doesn't fragment it. */}
@@ -302,10 +368,12 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
               <Line
                 type="monotone"
                 dataKey="tempAmbient"
+                name={roomName}
                 stroke="#38bdf8"
                 strokeWidth={2}
                 strokeDasharray="4 3"
                 dot={false}
+                activeDot={{ r: 4 }}
                 isAnimationActive={false}
                 connectNulls
               />
@@ -323,7 +391,12 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
           isLoading={isLoading}
           hasData={!!series.length && hasReject}
         >
-          <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <LineChart
+            data={series}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            syncId="mw-history"
+            syncMethod="value"
+          >
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="ts"
@@ -342,12 +415,8 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
               tickFormatter={(v) => fmtNum(v, 2)}
             />
             <Tooltip
-              contentStyle={{
-                background: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: 8,
-                fontSize: 12,
-              }}
+              contentStyle={TOOLTIP_CONTENT_STYLE}
+              cursor={TOOLTIP_CURSOR}
               labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
               formatter={(v: number) => [`${fmtNum(v, 3)} %`, 'Reject rate']}
             />
@@ -357,6 +426,7 @@ export function HistoryCharts({ minerId, family, ambientSensorId, ambientSensorN
               stroke="#f87171"
               strokeWidth={2}
               dot={false}
+              activeDot={{ r: 4 }}
               isAnimationActive={false}
               connectNulls={false}
             />
