@@ -100,12 +100,12 @@ export function MinerPage() {
       <MinerBestShares minerId={idNum} />
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="h-auto">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="hardware">Hardware</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="controls">Controls</TabsTrigger>
-          <TabsTrigger value="advanced">Advanced</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-5 sm:inline-flex sm:w-auto">
+          <TabsTrigger value="overview" className="px-1.5 text-xs sm:px-3 sm:text-sm">Overview</TabsTrigger>
+          <TabsTrigger value="hardware" className="px-1.5 text-xs sm:px-3 sm:text-sm">Hardware</TabsTrigger>
+          <TabsTrigger value="history" className="px-1.5 text-xs sm:px-3 sm:text-sm">History</TabsTrigger>
+          <TabsTrigger value="controls" className="px-1.5 text-xs sm:px-3 sm:text-sm">Controls</TabsTrigger>
+          <TabsTrigger value="advanced" className="px-1.5 text-xs sm:px-3 sm:text-sm">Advanced</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-0 space-y-4">

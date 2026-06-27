@@ -2,8 +2,9 @@ import { Card } from '@/components/ui/card';
 import { useAmbientTemp } from '@/api/hooks';
 
 /**
- * Ambient temperature card — one row per external sensor:
- * "<name> | Temperature X°C | Min: Y°C | Max: Z°C".
+ * Ambient temperature card — one block per external sensor, on two lines:
+ *   line 1: "<name> | Temperature X°C"
+ *   line 2: "Min: Y°C | Max: Z°C"
  *
  * Colour logic mirrors ``common/minerwatch-core.yaml`` in the ESPHome
  * panel — the one exception is the warm stop, retuned to the app's
@@ -76,23 +77,24 @@ export function AmbientTempCard() {
           const curColor =
             s.current_c === null ? NODATA_COLOR : gradientColor(s.current_c);
           return (
-            <div
-              key={s.sensor_id}
-              className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-base sm:text-lg"
-            >
-              <span className="font-semibold">{s.name}</span>
-              <span className="text-muted-foreground">| Temperature</span>
-              <span className="font-semibold tabular-nums" style={{ color: curColor }}>
-                {fmtTemp(s.current_c)}
-              </span>
-              <span className="text-muted-foreground">| Min:</span>
-              <span className="font-semibold tabular-nums" style={{ color: MIN_COLOR }}>
-                {fmtTemp(s.min_c)}
-              </span>
-              <span className="text-muted-foreground">| Max:</span>
-              <span className="font-semibold tabular-nums" style={{ color: MAX_COLOR }}>
-                {fmtTemp(s.max_c)}
-              </span>
+            <div key={s.sensor_id} className="flex flex-col gap-y-0.5">
+              <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-base sm:text-lg">
+                <span className="font-semibold">{s.name}</span>
+                <span className="text-muted-foreground">| Temperature</span>
+                <span className="font-semibold tabular-nums" style={{ color: curColor }}>
+                  {fmtTemp(s.current_c)}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm sm:text-base">
+                <span className="text-muted-foreground">Min:</span>
+                <span className="font-semibold tabular-nums" style={{ color: MIN_COLOR }}>
+                  {fmtTemp(s.min_c)}
+                </span>
+                <span className="text-muted-foreground">| Max:</span>
+                <span className="font-semibold tabular-nums" style={{ color: MAX_COLOR }}>
+                  {fmtTemp(s.max_c)}
+                </span>
+              </div>
             </div>
           );
         })}

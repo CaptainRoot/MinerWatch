@@ -20,14 +20,14 @@ export function fmtDifficulty(value: number | null | undefined, decimals = 2): s
   if (n === 0) return '0';
   const abs = Math.abs(n);
   for (const u of SI_UNITS) {
-    if (abs >= u.v) return `${(n / u.v).toFixed(decimals)} ${u.s}`;
+    if (abs >= u.v) return `${(n / u.v).toFixed(decimals)}\u00A0${u.s}`;
   }
   return decimals >= 2 ? n.toFixed(0) : n.toFixed(decimals);
 }
 
 export function fmtNum(value: number | null | undefined, decimals = 2, unit = ''): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
-  return `${Number(value).toFixed(decimals)}${unit ? ` ${unit}` : ''}`;
+  return `${Number(value).toFixed(decimals)}${unit ? `\u00A0${unit}` : ''}`;
 }
 
 // Fleet hashrate formatter for the dashboard "Total hashrate" KPI. Input
@@ -73,22 +73,22 @@ export function fmtRelative(timestamp: number | null | undefined): string {
 /** Smart, scale-aware ETA formatter. Used by the Predictions widget. */
 export function fmtEta(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) return '—';
-  if (seconds < 60) return `${Math.round(seconds)} s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  if (seconds < 60) return `${Math.round(seconds)}\u00A0s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}\u00A0min`;
   if (seconds < 86400) {
     const h = seconds / 3600;
-    return `${h < 10 ? h.toFixed(1) : Math.round(h)} h`;
+    return `${h < 10 ? h.toFixed(1) : Math.round(h)}\u00A0h`;
   }
   if (seconds < 86400 * 30) {
     const d = seconds / 86400;
-    return `${d < 10 ? d.toFixed(1) : Math.round(d)} days`;
+    return `${d < 10 ? d.toFixed(1) : Math.round(d)}\u00A0days`;
   }
   if (seconds < 86400 * 365) {
     const m = seconds / (86400 * 30.44);
-    return `${m < 10 ? m.toFixed(1) : Math.round(m)} months`;
+    return `${m < 10 ? m.toFixed(1) : Math.round(m)}\u00A0months`;
   }
   const y = seconds / (86400 * 365.25);
-  return y < 100 ? `${y < 10 ? y.toFixed(1) : Math.round(y)} years` : `${Math.round(y).toLocaleString()} years`;
+  return y < 100 ? `${y < 10 ? y.toFixed(1) : Math.round(y)}\u00A0years` : `${Math.round(y).toLocaleString()}\u00A0years`;
 }
 
 /** Probability → human label, with sane bounds at the extremes. */
