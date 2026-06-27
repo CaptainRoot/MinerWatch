@@ -2,9 +2,12 @@ import { Card } from '@/components/ui/card';
 import { useAmbientTemp } from '@/api/hooks';
 
 /**
- * Ambient temperature card — one block per external sensor, on two lines:
- *   line 1: "<name> | Temperature X°C"
- *   line 2: "Min: Y°C | Max: Z°C"
+ * Ambient temperature card — one block per external sensor:
+ *   - desktop (>= sm): one line, "<name> | Temperature X°C | Min: Y°C | Max: Z°C";
+ *   - mobile (< sm): wraps to two lines after the current temperature, and the
+ *     "|" before Min is hidden so the second line reads "Min: Y°C | Max: Z°C".
+ * The wrap is forced by a full-basis zero-height spacer that only exists on
+ * mobile, so the same markup serves both layouts.
  *
  * Colour logic mirrors ``common/minerwatch-core.yaml`` in the ESPHome
  * panel — the one exception is the warm stop, retuned to the app's
@@ -77,24 +80,26 @@ export function AmbientTempCard() {
           const curColor =
             s.current_c === null ? NODATA_COLOR : gradientColor(s.current_c);
           return (
-            <div key={s.sensor_id} className="flex flex-col gap-y-0.5">
-              <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-base sm:text-lg">
-                <span className="font-semibold">{s.name}</span>
-                <span className="text-muted-foreground">| Temperature</span>
-                <span className="font-semibold tabular-nums" style={{ color: curColor }}>
-                  {fmtTemp(s.current_c)}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm sm:text-base">
-                <span className="text-muted-foreground">Min:</span>
-                <span className="font-semibold tabular-nums" style={{ color: MIN_COLOR }}>
-                  {fmtTemp(s.min_c)}
-                </span>
-                <span className="text-muted-foreground">| Max:</span>
-                <span className="font-semibold tabular-nums" style={{ color: MAX_COLOR }}>
-                  {fmtTemp(s.max_c)}
-                </span>
-              </div>
+            <div
+              key={s.sensor_id}
+              className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-base sm:text-lg"
+            >
+              <span className="font-semibold">{s.name}</span>
+              <span className="text-muted-foreground">| Temperature</span>
+              <span className="font-semibold tabular-nums" style={{ color: curColor }}>
+                {fmtTemp(s.current_c)}
+              </span>
+              <span aria-hidden className="h-0 basis-full sm:hidden" />
+              <span className="text-muted-foreground">
+                <span className="hidden sm:inline">| </span>Min:
+              </span>
+              <span className="font-semibold tabular-nums" style={{ color: MIN_COLOR }}>
+                {fmtTemp(s.min_c)}
+              </span>
+              <span className="text-muted-foreground">| Max:</span>
+              <span className="font-semibold tabular-nums" style={{ color: MAX_COLOR }}>
+                {fmtTemp(s.max_c)}
+              </span>
             </div>
           );
         })}
