@@ -90,6 +90,20 @@ CREATE TABLE IF NOT EXISTS metrics (
 CREATE INDEX IF NOT EXISTS idx_metrics_miner_ts ON metrics(miner_id, ts);
 CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(ts);
 
+-- Most recent raw poll payload per miner. The per-sample `metrics.raw`
+-- column used to hold the full miner JSON on every row and dominated the
+-- DB (e.g. 138k rows of ~4 KB, ~540 MB), yet only the latest payload per
+-- miner is ever read (the /api/miners/{id}/raw endpoint). So we keep just
+-- that here, one row per miner upserted each poll, and stop writing raw
+-- into `metrics`. Keep this comment free of any semicolon -- SCHEMA_SQL is
+-- split statement-by-statement on the semicolon.
+CREATE TABLE IF NOT EXISTS latest_raw (
+    miner_id        INTEGER PRIMARY KEY,
+    ts              INTEGER NOT NULL,
+    raw             TEXT,
+    FOREIGN KEY (miner_id) REFERENCES miners(id) ON DELETE CASCADE
+);
+
 -- Rollup tier #1: 1-minute aggregates of `metrics`.
 -- Populated by the `rollup_to_1m` job, retention much longer than raw.
 -- `ts` is the bucket-start unix timestamp (rounded down to the minute).
@@ -669,6 +683,9 @@ async def delete_miner(miner_id: int) -> None:
 # ---------- Metrics ----------
 
 async def insert_metric(miner_id: int, ts: int, sample: dict[str, Any]) -> None:
+    # The full miner payload is NOT stored on every metrics row anymore — that
+    # one column dominated the DB. We keep only the latest payload per miner in
+    # `latest_raw` (the sole reader is /api/miners/{id}/raw via get_latest_raw).
     raw = json.dumps(sample.get("raw")) if sample.get("raw") is not None else None
     async with connect() as conn:
         await conn.execute(
@@ -676,8 +693,8 @@ async def insert_metric(miner_id: int, ts: int, sample: dict[str, Any]) -> None:
             INSERT INTO metrics
               (miner_id, ts, hashrate_ths, power_w, temp_chip_c, temp_vr_c,
                fan_rpm, fan_pct, frequency_mhz, voltage_mv, uptime_s,
-               accepted, rejected, best_difficulty, pool_url, worker, raw)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               accepted, rejected, best_difficulty, pool_url, worker)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 miner_id,
@@ -696,9 +713,17 @@ async def insert_metric(miner_id: int, ts: int, sample: dict[str, Any]) -> None:
                 sample.get("best_difficulty"),
                 sample.get("pool_url"),
                 sample.get("worker"),
-                raw,
             ),
         )
+        if raw is not None:
+            await conn.execute(
+                """
+                INSERT INTO latest_raw (miner_id, ts, raw)
+                VALUES (?, ?, ?)
+                ON CONFLICT(miner_id) DO UPDATE SET ts = excluded.ts, raw = excluded.raw
+                """,
+                (miner_id, ts, raw),
+            )
         await conn.commit()
 
 
@@ -706,6 +731,21 @@ async def latest_metric(miner_id: int) -> dict[str, Any] | None:
     async with connect() as conn:
         async with conn.execute(
             "SELECT * FROM metrics WHERE miner_id = ? ORDER BY ts DESC LIMIT 1",
+            (miner_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def get_latest_raw(miner_id: int) -> dict[str, Any] | None:
+    """Most recent raw poll payload for one miner: ``{ts, raw}`` or ``None``.
+
+    Backing store for /api/miners/{id}/raw. Replaces reading the per-sample
+    `metrics.raw` column (no longer written) — see `insert_metric`.
+    """
+    async with connect() as conn:
+        async with conn.execute(
+            "SELECT ts, raw FROM latest_raw WHERE miner_id = ?",
             (miner_id,),
         ) as cur:
             row = await cur.fetchone()

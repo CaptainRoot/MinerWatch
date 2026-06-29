@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.5] — 2026-06-29
+
+### Fixed
+
+- **MinerWatch no longer keeps the full miner payload on every metrics row.**
+  Each poll used to store the miner's entire raw JSON response in a column of
+  the `metrics` table. On an active fleet that single column grew to hundreds
+  of megabytes inside the 48-hour raw-retention window, and the kernel held it
+  all in page cache — which is what made the app's memory look alarmingly large
+  on Umbrel even though almost none of it was actually in use. The raw payload
+  is now stored only as the most recent sample per miner, in a small
+  `latest_raw` table — the only place it was ever read (the
+  `/api/miners/{id}/raw` debug endpoint) — so the per-row blob is gone and the
+  database, and the cache behind it, shrink by an order of magnitude. Old rows
+  clear themselves within the 48-hour window; a one-off `VACUUM` reclaims the
+  file immediately. No API responses change, so the Monolith, Halo and ambient
+  sensor integrations are unaffected.
+- **Live-share streams no longer leak socket memory over long uptimes.** A
+  miner detail view opens a Server-Sent Events stream for its live shares. If
+  the browser went away without a clean disconnect — common behind a reverse
+  proxy that doesn't propagate the close upstream — the connection and the
+  socket buffers held for it stayed pinned until the process restarted, so
+  memory crept upward the longer MinerWatch ran. Streams now notice a dropped
+  client and, as a hard backstop, recycle on a capped lifetime (the browser
+  reconnects on its own, so it is invisible), and the snapshot sent on connect
+  is bounded. Memory stays flat across long uptimes instead of climbing toward
+  a restart.
+
+## [1.19.4] — 2026-06-27
+
+### Fixed
+
+- **Ambient temperatures sit on one line on desktop.** The room-temperature
+  readout now stays on a single line at desktop widths and wraps to two lines
+  only on narrow mobile screens, keeping the layout tidy on larger displays.
+
+## [1.19.3] — 2026-06-27
+
+### Fixed
+
+- **Mobile layout fixes for ambient temperatures and the miner tab bar.** Room
+  temperatures stack onto two lines so they fit narrow screens, the miner tab
+  bar fits on mobile without overflowing, and each reading stays joined to its
+  unit so a value and its unit never wrap apart.
+
 ## [1.19.2] — 2026-06-27
 
 ### Added

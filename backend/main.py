@@ -1142,8 +1142,22 @@ async def api_miner_shares_recent(miner_id: int, limit: int = 1000) -> dict:
     }
 
 
+# Live-share SSE stream guards. The stream is long-lived; if a client goes
+# away without a clean close (e.g. behind a reverse proxy that doesn't
+# propagate the disconnect upstream), the connection — and the socket buffers
+# the proxy holds for it — stays pinned until the process restarts, which is
+# what made memory creep up over uptime. So we (a) detect the disconnect when
+# it does propagate, and (b) cap the connection lifetime as a hard backstop:
+# the browser EventSource reconnects on its own, so a periodic recycle is
+# invisible. We also cap the initial snapshot so a reconnect storm can't push
+# huge payloads. The cap is applied HERE only — recent()'s default is left
+# untouched so /api/halo and /shares/recent keep their full view.
+SSE_SNAPSHOT_LIMIT = 2000
+SSE_MAX_LIFETIME_S = 600
+
+
 @app.get("/api/miners/{miner_id}/shares/stream")
-async def api_miner_shares_stream(miner_id: int) -> StreamingResponse:
+async def api_miner_shares_stream(miner_id: int, request: Request) -> StreamingResponse:
     """Server-Sent Events stream of live share events for one AxeOS miner.
 
     Events:
@@ -1167,17 +1181,23 @@ async def api_miner_shares_stream(miner_id: int) -> StreamingResponse:
 
     async def event_gen():
         q = log_streamer.subscribe(miner_id)
+        deadline = time.monotonic() + SSE_MAX_LIFETIME_S
         try:
             yield _sse(
                 "snapshot",
                 {
-                    "events": log_streamer.recent(miner_id),
+                    "events": log_streamer.recent(miner_id, SSE_SNAPSHOT_LIMIT),
                     "stats": log_streamer.stats(miner_id),
                 },
             )
             while True:
+                if await request.is_disconnected():
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=15)
+                    event = await asyncio.wait_for(q.get(), timeout=min(15.0, remaining))
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
@@ -1371,13 +1391,20 @@ async def api_miner_raw(miner_id: int) -> dict:
     if not miner:
         raise HTTPException(404, "miner not found")
     sample = poller.last_results.get(miner_id)
-    last_metric = await db.latest_metric(miner_id)
+    stored = await db.get_latest_raw(miner_id)
+    raw_text = stored.get("raw") if stored else None
+    if raw_text is None:
+        # Transition fallback: until the first poll after upgrade fills
+        # latest_raw, recent metrics rows may still carry the old payload.
+        last_metric = await db.latest_metric(miner_id)
+        if last_metric and last_metric.get("raw"):
+            raw_text = last_metric["raw"]
     raw_from_db = None
-    if last_metric and last_metric.get("raw"):
+    if raw_text:
         try:
-            raw_from_db = _json.loads(last_metric["raw"])
+            raw_from_db = _json.loads(raw_text)
         except (ValueError, TypeError):
-            raw_from_db = last_metric["raw"]
+            raw_from_db = raw_text
     return {
         "miner": {"id": miner["id"], "name": miner["name"], "family": miner["family"], "host": miner["host"]},
         "live_sample": asdict(sample) if sample else None,
